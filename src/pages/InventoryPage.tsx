@@ -3,6 +3,12 @@ import { Search } from "lucide-react";
 import clsx from "clsx";
 import { INV_CATEGORIES, INV_CAT_LABEL, INV_SEED } from "@/data/inventory-seed";
 import { inventoryItemSchema, type InventoryItem } from "@/data/schemas";
+import { uid } from "@/lib/uid";
+import { ItemEditor } from "./inventory/ItemEditor";
+import { TransferModal } from "./inventory/TransferModal";
+
+type EditTarget = string | "new" | null;
+type TransferTarget = "import" | "export" | null;
 
 const STORAGE_KEY = "bench-inventory-v1";
 const STORAGE_VERSION = 1;
@@ -55,10 +61,50 @@ export function InventoryPage() {
   const [lowOnly, setLowOnly] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<SortDir>(1);
+  const [editing, setEditing] = useState<EditTarget>(null);
+  const [transferOpen, setTransferOpen] = useState<TransferTarget>(null);
 
   useEffect(() => {
     saveInventory(items);
   }, [items]);
+
+  const editingItem =
+    editing && editing !== "new" ? items.find((i) => i.id === editing) ?? null : null;
+
+  function patchItem(
+    id: string,
+    patch: Partial<Omit<InventoryItem, "id" | "unit" | "tags" | "updated">>,
+  ) {
+    setItems((prev) =>
+      prev.map((i) =>
+        i.id === id
+          ? { ...i, ...patch, updated: new Date().toISOString().slice(0, 10) }
+          : i,
+      ),
+    );
+  }
+
+  function addItem(item: Omit<InventoryItem, "id" | "unit" | "tags" | "updated">) {
+    const fresh: InventoryItem = {
+      id: uid(),
+      unit: "pcs",
+      tags: [],
+      updated: new Date().toISOString().slice(0, 10),
+      ...item,
+    };
+    setItems((prev) => [fresh, ...prev]);
+  }
+
+  function applyImport(next: InventoryItem[], mode: "replace" | "merge") {
+    if (mode === "replace") {
+      setItems(next);
+    } else {
+      const byId = new Map(items.map((i) => [i.id, i]));
+      next.forEach((i) => byId.set(i.id, i));
+      setItems(Array.from(byId.values()));
+    }
+    setTransferOpen(null);
+  }
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -187,6 +233,25 @@ export function InventoryPage() {
           />
           <span>low stock only</span>
         </label>
+        <div className="flex-1" />
+        <button
+          onClick={() => setTransferOpen("import")}
+          className="px-3 py-2 text-[12.5px] text-muted border border-line rounded-md hover:border-line-2 hover:text-text-2 transition-colors"
+        >
+          ↑ import
+        </button>
+        <button
+          onClick={() => setTransferOpen("export")}
+          className="px-3 py-2 text-[12.5px] text-muted border border-line rounded-md hover:border-line-2 hover:text-text-2 transition-colors"
+        >
+          ↓ export
+        </button>
+        <button
+          onClick={() => setEditing("new")}
+          className="px-3 py-2 text-[12.5px] text-accent bg-accent/10 border border-accent/40 rounded-md hover:bg-accent/20 transition-colors"
+        >
+          + add item
+        </button>
       </div>
 
       {/* Table */}
@@ -253,7 +318,13 @@ export function InventoryPage() {
                   <td className="px-3 py-2.5 align-top text-right font-mono font-mono-features text-text-2">{fmtMoney(i.unitCost)}</td>
                   <td className="px-3 py-2.5 align-top text-right font-mono font-mono-features text-text-2">{fmtMoney(line)}</td>
                   <td className="px-3 py-2.5 align-top text-muted">{i.supplier || "—"}</td>
-                  <td className="px-3 py-2.5 align-top text-right">
+                  <td className="px-3 py-2.5 align-top text-right whitespace-nowrap">
+                    <button
+                      onClick={() => setEditing(i.id)}
+                      className="font-mono font-mono-features text-[10.5px] uppercase text-faint hover:text-text-2 mr-2"
+                    >
+                      edit
+                    </button>
                     <button
                       onClick={() => {
                         if (confirm(`Delete "${i.name}"?`)) deleteItem(i.id);
@@ -276,6 +347,31 @@ export function InventoryPage() {
           reset to seed
         </button>
       </div>
+
+      {editing && (
+        <ItemEditor
+          item={editingItem}
+          isNew={editing === "new"}
+          onClose={() => setEditing(null)}
+          onSave={(patch) => {
+            if (editing === "new") addItem(patch);
+            else patchItem(editing, patch);
+            setEditing(null);
+          }}
+        />
+      )}
+
+      {transferOpen === "export" && (
+        <TransferModal mode="export" items={items} onClose={() => setTransferOpen(null)} />
+      )}
+      {transferOpen === "import" && (
+        <TransferModal
+          mode="import"
+          items={items}
+          onClose={() => setTransferOpen(null)}
+          onImport={applyImport}
+        />
+      )}
     </div>
   );
 }
