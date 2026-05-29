@@ -198,3 +198,47 @@ select {
 .prose-bench em {
   font-style: italic;
 }
+
+/* Inventory form input shared style */
+.inv-input {
+  display: block;
+  width: 100%;
+  padding: 7px 10px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-line);
+  border-radius: 6px;
+  color: var(--color-text);
+  font-size: 13px;
+  outline: 0;
+  transition: border-color 0.15s;
+}
+.inv-input::placeholder {
+  color: var(--color-faint);
+}
+.inv-input:focus {
+  border-color: var(--accent-line);
+}
+textarea.inv-input {
+  line-height: 1.5;
+  font-family: inherit;
+}
+.inv-json {
+  display: block;
+  width: 100%;
+  min-height: 320px;
+  padding: 12px 14px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-line);
+  border-radius: 6px;
+  color: var(--color-text-2);
+  font-family: var(--font-mono);
+  font-feature-settings: "ss02", "cv10";
+  font-size: 12px;
+  line-height: 1.55;
+  outline: 0;
+  resize: vertical;
+  transition: border-color 0.15s;
+}
+.inv-json:focus {
+  border-color: var(--accent-line);
+}
