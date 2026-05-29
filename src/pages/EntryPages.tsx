@@ -19,9 +19,8 @@ import type {
   Project,
   Tool,
 } from "@/data/schemas";
-import { ArchetypeBodies, DomainBodies } from "./bodies";
+import { ArchetypeBodies, ComparisonBodies, DomainBodies, PrincipleBodies, ToolBodies } from "./bodies";
 import { CardGrid, CardLink, PageHead, SpecTable, StatusPill } from "./elements";
-import { DemoPWM } from "@/demos/DemoPWM";
 
 /* ── Domain ───────────────────────────────────────────── */
 export function DomainPage({ entry }: { entry: Domain }) {
@@ -152,46 +151,27 @@ export function ComponentPage({ entry }: { entry: Component }) {
 
 /* ── Tool ────────────────────────────────────────────── */
 export function ToolPage({ entry }: { entry: Tool }) {
+  const Body = ToolBodies[entry.slug];
   return (
     <div className="prose-bench">
       <PageHead entry={entry} />
-      <p>Stub. Add the rationale for owning this, what to buy first, common modes, and the most common mistakes.</p>
+      {Body ? (
+        <Body />
+      ) : (
+        <p>Stub. Add the rationale for owning this, what to buy first, common modes, and the most common mistakes.</p>
+      )}
     </div>
   );
 }
 
 /* ── Principle ───────────────────────────────────────── */
 export function PrinciplePage({ entry }: { entry: Principle }) {
+  const Body = PrincipleBodies[entry.slug];
   return (
     <div className="prose-bench">
       <PageHead entry={entry} />
-      {entry.slug === "pr-pwm" ? (
-        <>
-          <h2>The idea</h2>
-          <p>
-            You can't easily make a microcontroller pin output 1.3V. You <em>can</em> make it output 0V or 3.3V very fast. If
-            you switch between them quickly enough, anything with inertia — an LED's perception, a motor's rotor, a capacitor —
-            sees the time-average. That's PWM.
-          </p>
-          <DemoPWM />
-          <h2>Why it works for each load</h2>
-          <ul>
-            <li>
-              <strong>LEDs</strong> — your eye integrates over ~50ms. Switch faster than ~200Hz and brightness looks smooth.
-            </li>
-            <li>
-              <strong>Motors</strong> — winding inductance integrates current. Switch ~20kHz+ and the rotor sees an average
-              torque.
-            </li>
-            <li>
-              <strong>Heaters</strong> — thermal mass integrates over seconds. Switch at 1Hz, the resistor doesn't care.
-            </li>
-            <li>
-              <strong>Audio</strong> — class-D amplifiers PWM at 250kHz+ and rely on the speaker (and your ear) to
-              low-pass-filter.
-            </li>
-          </ul>
-        </>
+      {Body ? (
+        <Body />
       ) : (
         <p>Stub. Add the intuition, the formal version, when it breaks, and which projects taught you about it.</p>
       )}
@@ -201,10 +181,11 @@ export function PrinciplePage({ entry }: { entry: Principle }) {
 
 /* ── Comparison ──────────────────────────────────────── */
 export function ComparisonPage({ entry }: { entry: Comparison }) {
+  const Body = ComparisonBodies[entry.slug];
   return (
     <div className="prose-bench">
       <PageHead entry={entry} />
-      <p>{entry.deck}</p>
+      {Body ? <Body /> : <p>{entry.deck}</p>}
     </div>
   );
 }

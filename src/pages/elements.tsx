@@ -144,3 +144,44 @@ export function SpecTable({ rows }: { rows: [React.ReactNode, React.ReactNode][]
     </table>
   );
 }
+
+export function Compare({ header, rows }: { header: string[]; rows: (string | React.ReactNode)[][] }) {
+  const cols = header.length;
+  return (
+    <div className="my-6 border border-line rounded-lg overflow-hidden">
+      <div
+        className="grid bg-bg-2 border-b border-line"
+        style={{ gridTemplateColumns: `160px repeat(${cols - 1}, 1fr)` }}
+      >
+        {header.map((h, i) => (
+          <div
+            key={i}
+            className="px-3 py-2 font-mono font-mono-features text-[10.5px] uppercase tracking-[0.08em] text-faint"
+          >
+            {h}
+          </div>
+        ))}
+      </div>
+      {rows.map((row, ri) => (
+        <div
+          key={ri}
+          className="grid border-b border-line last:border-0 hover:bg-hover/30 transition-colors"
+          style={{ gridTemplateColumns: `160px repeat(${cols - 1}, 1fr)` }}
+        >
+          {row.map((c, ci) => (
+            <div
+              key={ci}
+              className={
+                ci === 0
+                  ? "px-3 py-2.5 text-[12.5px] text-muted font-mono font-mono-features"
+                  : "px-3 py-2.5 text-[13.5px] text-text-2"
+              }
+            >
+              {c}
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
