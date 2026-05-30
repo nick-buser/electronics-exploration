@@ -14,4 +14,9 @@ export default defineConfig({
     port: 5173,
     host: true,
   },
+  build: {
+    // The CodeMirror editor is lazy-loaded as its own chunk; it's the only
+    // thing that trips the default 500 kB warning, and only on /code pages.
+    chunkSizeWarningLimit: 700,
+  },
 });

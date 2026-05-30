@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Callout, Compare, ImageSlot, SpecTable } from "./elements";
+import { CodeBlock } from "@/components/code/CodeBlock";
 import { DemoPWM } from "@/demos/DemoPWM";
 import { DemoBus } from "@/demos/DemoBus";
 import { DemoPID } from "@/demos/DemoPID";
@@ -174,6 +175,33 @@ export const PrincipleBodies: Record<string, Body> = {
         time-average. That's PWM.
       </p>
       <DemoPWM />
+      <h2>In firmware</h2>
+      <p>
+        On most 8-bit Arduinos <code>analogWrite()</code> hands you an 8-bit duty cycle (0–255) on a fixed ~490Hz/980Hz
+        carrier. The fade below is the canonical first PWM program:
+      </p>
+      <CodeBlock
+        language="cpp"
+        filename="fade.ino"
+        code={`const int LED = 9;  // a PWM-capable pin (~ marked on the board)
+
+void setup() {
+  pinMode(LED, OUTPUT);
+}
+
+void loop() {
+  // ramp up: 0 -> 255 duty
+  for (int duty = 0; duty <= 255; duty++) {
+    analogWrite(LED, duty);   // duty/255 average voltage
+    delay(4);
+  }
+  // ramp down
+  for (int duty = 255; duty >= 0; duty--) {
+    analogWrite(LED, duty);
+    delay(4);
+  }
+}`}
+      />
       <h2>Why it works for each load</h2>
       <ul>
         <li>
@@ -250,6 +278,34 @@ export const PrincipleBodies: Record<string, Body> = {
         period. That's it. Hundreds of sensors use it.
       </p>
       <DemoBus />
+      <h2>The bus scanner you'll reach for first</h2>
+      <p>
+        Before debugging a driver, prove the device ACKs at the address you expect. This walks all 7-bit addresses and prints
+        any that respond — the hardware equivalent of <code>ping</code>:
+      </p>
+      <CodeBlock
+        language="cpp"
+        filename="i2c_scan.ino"
+        code={`#include <Wire.h>
+
+void setup() {
+  Wire.begin();
+  Serial.begin(115200);
+  while (!Serial) {}
+  Serial.println("Scanning I2C bus...");
+
+  for (uint8_t addr = 1; addr < 127; addr++) {
+    Wire.beginTransmission(addr);
+    if (Wire.endTransmission() == 0) {        // 0 == device ACKed
+      Serial.print("  found 0x");
+      Serial.println(addr, HEX);
+    }
+  }
+  Serial.println("done.");
+}
+
+void loop() {}`}
+      />
       <h2>The most common failures</h2>
       <ul>
         <li>
@@ -405,6 +461,35 @@ export const ProjectBodies: Record<string, Body> = {
 
       <ImageSlot label="hero shot · arm on bench · drop your photo here" />
 
+      <h2>Teleop loop (LeRobot)</h2>
+      <p>
+        The leader/follower pair runs through LeRobot's host stack. The bring-up script that proves the whole chain — leader
+        bus → host → follower bus — is just a copy from one set of motors to the other:
+      </p>
+      <CodeBlock
+        language="python"
+        filename="teleop.py"
+        code={`from lerobot.common.robot_devices.motors.feetech import FeetechMotorsBus
+
+# Two STS3215 buses: the leader you move by hand, the follower it drives.
+leader = FeetechMotorsBus(port="/dev/ttyACM0", motors=ARM_MOTORS)
+follower = FeetechMotorsBus(port="/dev/ttyACM1", motors=ARM_MOTORS)
+leader.connect()
+follower.connect()
+
+# Let the leader move freely; the follower holds position.
+leader.write("Torque_Enable", 0)
+follower.write("Torque_Enable", 1)
+
+try:
+    while True:
+        target = leader.read("Present_Position")  # 6 joint angles
+        follower.write("Goal_Position", target)   # mirror them
+except KeyboardInterrupt:
+    leader.disconnect()
+    follower.disconnect()`}
+      />
+
       <h2>References</h2>
       <ul>
         <li>
@@ -523,6 +608,33 @@ export const ComponentBodies: Record<string, Body> = {
         Duty under 50% takes a diode trick (across R<sub>2</sub>). The math becomes instinct after about three astable
         circuits.
       </p>
+      <p>
+        No scope handy? Measure the period straight off pin 3 with <code>pulseIn()</code> and back out the frequency:
+      </p>
+      <CodeBlock
+        language="cpp"
+        filename="measure_555.ino"
+        code={`const int OUT_555 = 2;  // wire to NE555 pin 3 (OUT)
+
+void setup() {
+  pinMode(OUT_555, INPUT);
+  Serial.begin(115200);
+}
+
+void loop() {
+  // high + low time, in microseconds
+  unsigned long tHigh = pulseIn(OUT_555, HIGH);
+  unsigned long tLow  = pulseIn(OUT_555, LOW);
+  unsigned long period = tHigh + tLow;
+  if (period > 0) {
+    float freq = 1e6f / period;            // Hz
+    float duty = 100.0f * tHigh / period;  // %
+    Serial.print(freq, 1);  Serial.print(" Hz  ");
+    Serial.print(duty, 1);  Serial.println(" % duty");
+  }
+  delay(250);
+}`}
+      />
 
       <h2>Gotchas</h2>
       <ul>
