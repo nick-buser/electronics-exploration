@@ -12,6 +12,8 @@ export function Topbar({ slug, onOpenPalette }: Props) {
   const crumbs: Crumb[] = [{ label: "Atlas", href: "#/" }];
   if (slug === "inventory") {
     crumbs.push({ label: "Inventory", href: null });
+  } else if (slug === "map") {
+    crumbs.push({ label: "Map", href: null });
   } else if (entry) {
     crumbs.push({ label: TYPE_META[entry.type].group, href: "#/" });
     if (entry.type !== "domain" && entry.domain) {

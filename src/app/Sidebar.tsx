@@ -97,6 +97,11 @@ export function Sidebar({ slug, onOpenPalette }: Props) {
           <span className="flex-1">Inventory</span>
           <span className="font-mono font-mono-features text-[10px] text-faint">parts</span>
         </NavRow>
+        <NavRow href="#/map" active={slug === "map"}>
+          <span className="size-1.5 rounded-full bg-dim" />
+          <span className="flex-1">Map</span>
+          <span className="font-mono font-mono-features text-[10px] text-faint">graph</span>
+        </NavRow>
       </NavSection>
 
       {groups.map((g) => {
