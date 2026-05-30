@@ -98,7 +98,9 @@ export function solveAc(
     }
   });
 
-  // Ideal op-amp: same stamp as transient, just with complex 1s.
+  // Op-amps. Ideal uses V+ = V-. Finite-GBW substitutes the dominant-pole
+  // transfer function in the frequency domain:
+  //   V_out · (1 + jω/ωp) - A0·V+ + A0·V- = 0,  ωp = 2π·GBW/A0
   opamps.forEach((e, k) => {
     if (e.kind !== "OP") return;
     const row = internalN + nSrc + k;
@@ -106,8 +108,15 @@ export function solveAc(
     const iVp = nodes.index.get(e.vplus) ?? 0;
     const iVm = nodes.index.get(e.vminus) ?? 0;
     if (iVout > 0) A[iVout - 1][row] = add(A[iVout - 1][row], cx(1));
-    if (iVp > 0) A[row][iVp - 1] = add(A[row][iVp - 1], cx(1));
-    if (iVm > 0) A[row][iVm - 1] = add(A[row][iVm - 1], cx(-1));
+    if (e.A0 != null && e.GBW != null) {
+      const wp = (2 * Math.PI * e.GBW) / e.A0;
+      if (iVout > 0) A[row][iVout - 1] = add(A[row][iVout - 1], cx(1, omega / wp));
+      if (iVp > 0) A[row][iVp - 1] = add(A[row][iVp - 1], cx(-e.A0));
+      if (iVm > 0) A[row][iVm - 1] = add(A[row][iVm - 1], cx(e.A0));
+    } else {
+      if (iVp > 0) A[row][iVp - 1] = add(A[row][iVp - 1], cx(1));
+      if (iVm > 0) A[row][iVm - 1] = add(A[row][iVm - 1], cx(-1));
+    }
   });
 
   const x = solveComplex(A, z);

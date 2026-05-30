@@ -8,6 +8,7 @@ import { ActiveLowPassDemo } from "@/circuits/ActiveLowPassDemo";
 import { RectifierDemo } from "@/circuits/RectifierDemo";
 import { CommonEmitterDemo } from "@/circuits/CommonEmitterDemo";
 import { NmosSwitchDemo } from "@/circuits/NmosSwitchDemo";
+import { GbwTradeoffDemo } from "@/circuits/GbwTradeoffDemo";
 import { DemoPWM } from "@/demos/DemoPWM";
 import { DemoBus } from "@/demos/DemoBus";
 import { DemoPID } from "@/demos/DemoPID";
@@ -368,6 +369,29 @@ void loop() {
         (2π·R<sub>f</sub>·C<sub>f</sub>)
       </Callout>
       <ActiveLowPassDemo />
+      <h2>Gain–bandwidth tradeoff</h2>
+      <p>
+        The "ideal op-amp" model is a useful fiction. A real op-amp's open-loop gain is enormous but finite at DC, and it
+        rolls off above a dominant pole. The product of the gain and the −3 dB bandwidth is roughly constant — it's the part's{" "}
+        <strong>gain–bandwidth product</strong>, <strong>GBW</strong>, and it's what the datasheet quotes. A μA741 has GBW ≈
+        1 MHz; an OPA855 reaches 8 GHz. Everything in between trades amplifier-y things (input-offset accuracy, noise, current
+        consumption) for that number.
+      </p>
+      <p>
+        For a closed-loop gain G, the bandwidth you actually get is approximately{" "}
+        <strong>GBW / G</strong>. So a unity-gain buffer sees the full GBW, a ×10 amplifier sees a tenth of it, a ×100 amp a
+        hundredth. The simulator's op-amp accepts <code>A0</code> and <code>GBW</code> parameters (or omits them for the
+        infinite-gain idealisation). When set, the dominant-pole transfer function{" "}
+        <code>A(s) = A₀ / (1 + s/ω_p)</code> takes over — DC accuracy degrades by ~1/A₀, AC analysis picks up the pole, and
+        transient analysis sees the corresponding integrator time constant.
+      </p>
+      <GbwTradeoffDemo />
+      <p>
+        Each closed-loop trace starts flat at its gain, rolls off −20 dB/decade past its own corner, and merges onto the same
+        open-loop curve at high frequency. They all cross 0 dB (unity gain) at exactly GBW. Drag GBW up and the whole family
+        translates right; drag A₀ down and the open-loop plateau lowers but the unity-gain crossover stays put — because GBW
+        is GBW.
+      </p>
       <h2>Where the model breaks</h2>
       <ul>
         <li>

@@ -142,6 +142,36 @@ describe("MNA — op-amp configurations", () => {
   });
 });
 
+describe("MNA — finite-GBW op-amp (DC)", () => {
+  it("voltage follower DC gain is A0/(A0+1)", () => {
+    // With A0 = 1000, the closed-loop DC gain of a unity-gain buffer is
+    // A0 / (A0 + 1) ≈ 0.999 — slightly less than the ideal 1.0.
+    const A0 = 1000;
+    const c: Circuit = {
+      elements: [
+        { kind: "V", id: "vs", a: "vin", b: "gnd", wave: { kind: "dc", value: 1 } },
+        { kind: "OP", id: "u1", vplus: "vin", vminus: "vout", vout: "vout", A0, GBW: 1e6 },
+      ],
+    };
+    const r = dcOperatingPoint(c);
+    expect(r.v.vout).toBeCloseTo(A0 / (A0 + 1), 5);
+  });
+
+  it("with very large A0, finite-GBW indistinguishable from ideal at DC", () => {
+    const c: Circuit = {
+      elements: [
+        { kind: "V", id: "vs", a: "vin", b: "gnd", wave: { kind: "dc", value: 2.7 } },
+        { kind: "OP", id: "u1", vplus: "vin", vminus: "fb", vout: "vout", A0: 1e6, GBW: 1e6 },
+        { kind: "R", id: "rg", a: "fb", b: "gnd", value: 1000 },
+        { kind: "R", id: "rf", a: "vout", b: "fb", value: 9000 },
+      ],
+    };
+    const r = dcOperatingPoint(c);
+    // Ideal gain = 10, V_out = 27. Finite at A0=1e6 should be within ppm.
+    expect(r.v.vout).toBeCloseTo(27, 3);
+  });
+});
+
 describe("MNA — BJT (Ebers-Moll, Newton iteration)", () => {
   it("NPN common-emitter sets I_C ≈ β · I_B in forward active", () => {
     // 5V rail through 470kΩ into base, 1kΩ from collector to rail, emitter

@@ -44,6 +44,78 @@ describe("AC analysis — RC low-pass", () => {
   });
 });
 
+describe("AC analysis — finite-GBW op-amp", () => {
+  it("open-loop output rolls off at -20 dB/decade above the dominant pole", () => {
+    // Open-loop test: no feedback. V_out / V+ = A0 / (1 + jω/ωp)
+    // with ωp = 2π·GBW/A0. At f = GBW/A0, |gain| = A0/√2.
+    const A0 = 1e5;
+    const GBW = 1e6;
+    const fp = GBW / A0; // 10 Hz
+    const c: Circuit = {
+      elements: [
+        { kind: "V", id: "vs", a: "vin", b: "gnd", wave: { kind: "dc", value: 0 } },
+        // No feedback path, but the matrix is non-singular because A0 is
+        // finite and a tiny load terminates vout.
+        { kind: "OP", id: "u1", vplus: "vin", vminus: "gnd", vout: "vout", A0, GBW },
+        { kind: "R", id: "rl", a: "vout", b: "gnd", value: 1e6 },
+      ],
+    };
+    // Way below the pole — full open-loop gain (within 1%)
+    const lo = solveAc(c, 0.01, { vs: { mag: 1 } });
+    expect(abs(lo.v.vout)).toBeGreaterThan(A0 * 0.99);
+    expect(abs(lo.v.vout)).toBeLessThan(A0 * 1.01);
+    // At the pole — -3 dB
+    const atFp = solveAc(c, fp, { vs: { mag: 1 } });
+    expect(abs(atFp.v.vout)).toBeGreaterThan(A0 / Math.SQRT2 - A0 * 0.02);
+    expect(abs(atFp.v.vout)).toBeLessThan(A0 / Math.SQRT2 + A0 * 0.02);
+    // At unity-gain frequency = GBW, |gain| should be ≈ 1
+    const atGbw = solveAc(c, GBW, { vs: { mag: 1 } });
+    expect(abs(atGbw.v.vout)).toBeGreaterThan(0.9);
+    expect(abs(atGbw.v.vout)).toBeLessThan(1.1);
+  });
+
+  it("voltage follower bandwidth equals GBW", () => {
+    const A0 = 1e5;
+    const GBW = 1e6;
+    const c: Circuit = {
+      elements: [
+        { kind: "V", id: "vs", a: "vin", b: "gnd", wave: { kind: "dc", value: 0 } },
+        { kind: "OP", id: "u1", vplus: "vin", vminus: "vout", vout: "vout", A0, GBW },
+      ],
+    };
+    // Closed-loop gain G = 1, so closed-loop bandwidth ≈ GBW.
+    // At f = GBW, |gain| = 1/√2.
+    const r = solveAc(c, GBW, { vs: { mag: 1 } });
+    expect(abs(r.v.vout)).toBeGreaterThan(0.7);
+    expect(abs(r.v.vout)).toBeLessThan(0.72);
+  });
+
+  it("non-inverting amp closed-loop bandwidth = GBW / closed_loop_gain", () => {
+    const A0 = 1e5;
+    const GBW = 1e6;
+    const G = 10; // closed-loop gain: 1 + R_f/R_g = 1 + 9000/1000
+    const c: Circuit = {
+      elements: [
+        { kind: "V", id: "vs", a: "vin", b: "gnd", wave: { kind: "dc", value: 0 } },
+        { kind: "OP", id: "u1", vplus: "vin", vminus: "fb", vout: "vout", A0, GBW },
+        { kind: "R", id: "rg", a: "fb", b: "gnd", value: 1000 },
+        { kind: "R", id: "rf", a: "vout", b: "fb", value: 9000 },
+      ],
+    };
+    // Way below corner — full gain
+    const lo = solveAc(c, 100, { vs: { mag: 1 } });
+    expect(abs(lo.v.vout)).toBeGreaterThan(9.9);
+    expect(abs(lo.v.vout)).toBeLessThan(10.01);
+    // At f = GBW/G, -3 dB
+    const corner = solveAc(c, GBW / G, { vs: { mag: 1 } });
+    expect(abs(corner.v.vout)).toBeGreaterThan(7);
+    expect(abs(corner.v.vout)).toBeLessThan(7.15);
+    // Well above corner — rolling off toward unity at GBW
+    const past = solveAc(c, GBW, { vs: { mag: 1 } });
+    expect(abs(past.v.vout)).toBeLessThan(1.2);
+  });
+});
+
 describe("AC analysis — op-amp configurations", () => {
   it("ideal voltage follower has unity gain at any frequency", () => {
     const c: Circuit = {

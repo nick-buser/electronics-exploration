@@ -57,6 +57,9 @@ export interface StepResult {
   vgs: Record<string, number>;
   vds: Record<string, number>;
   idmos: Record<string, number>;
+  /** Per-op-amp output node voltage. Used by the next transient step's
+   *  finite-GBW integrator and exposed to callers for convenience. */
+  vop: Record<string, number>;
   /** Time of this sample. */
   t: number;
 }
@@ -73,6 +76,9 @@ interface SolverState {
   /** Last converged V_GS / V_DS for each MOSFET (effective NMOS convention). */
   mosVgs: Map<string, number>;
   mosVds: Map<string, number>;
+  /** Last V_out for each op-amp (only used by finite-GBW op-amps for the
+   *  implicit-Euler integrator on the dominant-pole transfer function). */
+  opVout: Map<string, number>;
 }
 
 export interface NewtonOptions {
@@ -244,6 +250,7 @@ export function initState(circuit: Circuit): SolverState {
   const bjtVbc = new Map<string, number>();
   const mosVgs = new Map<string, number>();
   const mosVds = new Map<string, number>();
+  const opVout = new Map<string, number>();
   for (const e of circuit.elements) {
     if (e.kind === "C") capV.set(e.id, e.ic ?? 0);
     if (e.kind === "L") indI.set(e.id, e.ic ?? 0);
@@ -256,8 +263,9 @@ export function initState(circuit: Circuit): SolverState {
       mosVgs.set(e.id, 0);
       mosVds.set(e.id, 0);
     }
+    if (e.kind === "OP") opVout.set(e.id, 0);
   }
-  return { nodes, capV, indI, diodeV, bjtVbe, bjtVbc, mosVgs, mosVds };
+  return { nodes, capV, indI, diodeV, bjtVbe, bjtVbc, mosVgs, mosVds, opVout };
 }
 
 /** Copy this step's reactive + nonlinear state forward as next-step ICs. */
@@ -269,6 +277,9 @@ export function advance(state: SolverState, step: StepResult): void {
   for (const [id, vbc] of Object.entries(step.vbc)) state.bjtVbc.set(id, vbc);
   for (const [id, vgs] of Object.entries(step.vgs)) state.mosVgs.set(id, vgs);
   for (const [id, vds] of Object.entries(step.vds)) state.mosVds.set(id, vds);
+  // Op-amp V_out — only matters for finite-GBW ops (the integrator pole),
+  // but cheap to copy unconditionally.
+  for (const [id, vop] of Object.entries(step.vop)) state.opVout.set(id, vop);
 }
 
 /* ── Solve ─────────────────────────────────────────────── */
@@ -494,7 +505,11 @@ function solveOneIteration(
     }
   });
 
-  // Op-amps
+  // Op-amps. Ideal model uses V+ = V-; finite-GBW uses the dominant-pole
+  // model A(s) = A0 / (1 + s/ωp) where ωp = 2π·GBW/A0. For implicit Euler:
+  //   V_out·(1 + τ/dt) - A0·V+ + A0·V- = (τ/dt)·V_out(t-dt)
+  // where τ = 1/ωp. At DC (dt → ∞), τ/dt → 0 and this becomes
+  //   V_out - A0·V+ + A0·V- = 0
   opamps.forEach((e, k) => {
     if (e.kind !== "OP") return;
     const row = internalN + nSrc + nInd + k;
@@ -502,8 +517,21 @@ function solveOneIteration(
     const iVp = state.nodes.index.get(e.vplus) ?? 0;
     const iVm = state.nodes.index.get(e.vminus) ?? 0;
     if (iVout > 0) A[iVout - 1][row] += 1;
-    if (iVp > 0) A[row][iVp - 1] += 1;
-    if (iVm > 0) A[row][iVm - 1] += -1;
+    if (e.A0 != null && e.GBW != null) {
+      const A0 = e.A0;
+      const tau = A0 / (2 * Math.PI * e.GBW);
+      const G = isFinite(dt) ? tau / dt : 0; // 0 collapses to DC: V_out = A0·(V+ - V-)
+      if (iVout > 0) A[row][iVout - 1] += 1 + G;
+      if (iVp > 0) A[row][iVp - 1] += -A0;
+      if (iVm > 0) A[row][iVm - 1] += A0;
+      if (isFinite(dt)) {
+        const vOutPrev = state.opVout.get(e.id) ?? 0;
+        z[row] += G * vOutPrev;
+      }
+    } else {
+      if (iVp > 0) A[row][iVp - 1] += 1;
+      if (iVm > 0) A[row][iVm - 1] += -1;
+    }
   });
 
   // Diode companions (Newton)
@@ -572,8 +600,11 @@ function solveOneIteration(
     il[e.id] = x[internalN + nSrc + k];
   });
   const iop: Record<string, number> = {};
+  const vop: Record<string, number> = {};
   opamps.forEach((e, k) => {
+    if (e.kind !== "OP") return;
     iop[e.id] = x[internalN + nSrc + nInd + k];
+    vop[e.id] = v[e.vout] ?? 0;
   });
   // Nonlinear element voltages from current iteration's solve. Currents
   // are filled in by the caller after Newton converges, recomputed from
@@ -616,7 +647,7 @@ function solveOneIteration(
     }
   }
 
-  return { v, i, vc, il, iop, vd, id, vbe, vbc, ic, ib, ie, vgs, vds, idmos, t };
+  return { v, i, vc, il, iop, vop, vd, id, vbe, vbc, ic, ib, ie, vgs, vds, idmos, t };
 }
 
 /** Stamp one terminal of a 3-terminal device with a single-V-pair Jacobian

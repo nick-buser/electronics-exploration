@@ -32,10 +32,22 @@ export type Element =
   | { kind: "C"; id: string; a: string; b: string; value: number; ic?: number }
   | { kind: "L"; id: string; a: string; b: string; value: number; ic?: number }
   | { kind: "V"; id: string; a: string; b: string; wave: Wave }
-  /** Ideal op-amp: V(vplus) - V(vminus) = 0, output sources whatever current
-   *  is needed to satisfy that constraint. Requires negative feedback in the
-   *  surrounding circuit or the MNA system is singular. */
-  | { kind: "OP"; id: string; vplus: string; vminus: string; vout: string }
+  /** Op-amp. When `A0` and `GBW` are both set, behaves as a single-pole
+   *  finite-gain amplifier: A(s) = A0 / (1 + s/ωp) where ωp = 2π·GBW/A0.
+   *  When either is omitted, falls back to the ideal V+ = V- model.
+   *  `A0` is DC open-loop gain (dimensionless); `GBW` is the gain-bandwidth
+   *  product in Hz (the frequency where |A(jω)| crosses unity). Requires
+   *  negative feedback in the surrounding circuit; otherwise the matrix
+   *  is singular (ideal) or numerically dominated by A0 (finite GBW). */
+  | {
+      kind: "OP";
+      id: string;
+      vplus: string;
+      vminus: string;
+      vout: string;
+      A0?: number;
+      GBW?: number;
+    }
   /** Shockley diode. Anode = a, cathode = b. Forward current flows a → b.
    *  I_D = Is · (exp(V_D / (N·Vt)) − 1). All three model params default to a
    *  1N4148-ish profile so most circuits can omit them. `ic` seeds the
