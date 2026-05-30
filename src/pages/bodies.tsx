@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { Callout, Compare, ImageSlot, SpecTable } from "./elements";
 import { CodeBlock } from "@/components/code/CodeBlock";
 import { RcPwmDemo } from "@/circuits/RcPwmDemo";
+import { DecouplingZDemo } from "@/circuits/DecouplingZDemo";
 import { DemoPWM } from "@/demos/DemoPWM";
 import { DemoBus } from "@/demos/DemoBus";
 import { DemoPID } from "@/demos/DemoPID";
@@ -275,6 +276,51 @@ void loop() {
       <Callout>
         The demo above is a cart-pendulum, which is famously harder than most real systems. If you can balance it, your
         intuition will overshoot for normal robotics loops.
+      </Callout>
+    </>
+  ),
+  "pr-decoupling": () => (
+    <>
+      <h2>What the rail actually sees</h2>
+      <p>
+        When a fast IC switches its outputs, it pulls a sharp burst of current from V<sub>cc</sub>. The trace back to the bulk
+        supply isn't a free wire — it has resistance and, more importantly, <em>inductance</em>. Inductors resist sudden current
+        changes, so during that switching edge the IC sees the rail briefly sag, every other IC sharing the rail sees a glitch,
+        and the logic threshold of something downstream gets violated. Decoupling caps fight this by sitting locally at each IC:
+        they have charge ready to deliver before the slow path to the bulk supply can react.
+      </p>
+      <h2>It's not the value — it's the impedance</h2>
+      <p>
+        At any one switching edge, what matters is how low the path-to-ground impedance is at the frequencies in that edge. An
+        ideal cap's impedance is 1/(ωC) — falling forever at 20 dB/decade. Real caps have parasitic inductance (ESL): the
+        physical loop between the cap's pads and the IC's V<sub>cc</sub>/GND pins forms a tiny series inductor. That ESL turns
+        the cap into a series LC, which has a <em>self-resonant frequency</em> where it briefly looks like a wire, but climbs
+        again above that. The big bulk cap on the board has tons of capacitance but enough ESL that it's useless above a few
+        MHz; the 100 nF ceramic next to the IC has much less capacitance but its self-resonance lives in the tens of MHz, right
+        where the switching edges have most of their energy.
+      </p>
+      <DecouplingZDemo />
+      <h2>Rules of thumb</h2>
+      <ul>
+        <li>
+          <strong>100 nF ceramic on every V<sub>cc</sub> pin</strong>, within a few millimetres. This is the "high-frequency"
+          shunt — the one fighting fast edges.
+        </li>
+        <li>
+          <strong>One or two bulk caps per power rail</strong> (10–100 µF), tucked somewhere near the rail's entry to the board.
+          These handle the slower current swings the ceramics can't.
+        </li>
+        <li>
+          <strong>Pour your ground plane</strong>. High-frequency return current finds the path of minimum inductance — usually
+          directly under the trace — and that path only exists if you give it one.
+        </li>
+        <li>
+          <strong>Pick the cap location, not the cap value, first.</strong> Two extra mm of trace inductance to the IC defeats
+          most of what the cap was buying you.
+        </li>
+      </ul>
+      <Callout label="// rule of thumb">
+        If you only remember one number: 100 nF X7R, 0402 or 0603 package, as close as the layout will physically allow.
       </Callout>
     </>
   ),

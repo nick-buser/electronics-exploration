@@ -77,4 +77,49 @@ describe("MNA transient — RC charging", () => {
     const r = dcOperatingPoint(c);
     expect(r.v.vout).toBeCloseTo(2.5, 6);
   });
+
+  it("treats an inductor as a short under DC", () => {
+    // V source through R, then L to ground. The L's a side is the only
+    // place the resistor delivers current to; at DC it sinks straight to gnd.
+    const c: Circuit = {
+      elements: [
+        { kind: "V", id: "vs", a: "vin", b: "gnd", wave: { kind: "dc", value: 5 } },
+        { kind: "R", id: "r", a: "vin", b: "mid", value: 100 },
+        { kind: "L", id: "l", a: "mid", b: "gnd", value: 1e-3 },
+      ],
+    };
+    const r = dcOperatingPoint(c);
+    expect(r.v.mid).toBeCloseTo(0, 6); // L is a short → mid sits at ground
+    expect(r.il.l).toBeCloseTo(0.05, 6); // 5V / 100Ω = 50 mA flowing into the inductor
+  });
+});
+
+describe("MNA transient — LC tank", () => {
+  it("trades energy between a pre-charged C and an L", () => {
+    // 1µF cap charged to 5V resonating into 1mH inductor through a
+    // mild 50Ω load. f_0 = 1 / (2π√(LC)) ≈ 5033 Hz, period ≈ 199 µs.
+    const c: Circuit = {
+      elements: [
+        { kind: "C", id: "c", a: "n", b: "gnd", value: 1e-6, ic: 5 },
+        { kind: "L", id: "l", a: "n", b: "gnd", value: 1e-3, ic: 0 },
+        { kind: "R", id: "r", a: "n", b: "gnd", value: 50 },
+      ],
+    };
+    // Run for ~3 periods.
+    const samples = runTransient(c, { duration: 600e-6, dt: 0.5e-6 });
+    const vs = samples.map((s) => s.v.n);
+    const ils = samples.map((s) => s.il.l);
+    const vMax = Math.max(...vs);
+    const vMin = Math.min(...vs);
+    const ilMax = Math.max(...ils);
+
+    // Voltage starts near 5V and swings negative — that only happens if
+    // the inductor is actually integrating current and returning it.
+    expect(vMax).toBeGreaterThan(4.5);
+    expect(vMin).toBeLessThan(-0.5);
+    // Inductor current peaks near the resonant Z₀ = √(L/C) ≈ 31.6Ω →
+    // I_peak ≈ V₀/Z₀ ≈ 158 mA undamped. With R and Euler damping, we
+    // accept >50 mA as evidence of energy transfer.
+    expect(ilMax).toBeGreaterThan(0.05);
+  });
 });
