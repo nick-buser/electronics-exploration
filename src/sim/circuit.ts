@@ -30,6 +30,7 @@ export function evalWave(w: Wave, t: number): number {
 export type Element =
   | { kind: "R"; id: string; a: string; b: string; value: number }
   | { kind: "C"; id: string; a: string; b: string; value: number; ic?: number }
+  | { kind: "L"; id: string; a: string; b: string; value: number; ic?: number }
   | { kind: "V"; id: string; a: string; b: string; wave: Wave };
 
 export interface Circuit {

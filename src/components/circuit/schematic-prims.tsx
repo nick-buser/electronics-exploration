@@ -142,6 +142,39 @@ export function Resistor({ a, b, label, value }: { a: Pt; b: Pt; label?: string;
   );
 }
 
+/** Inductor — a row of half-circle "coils" along the segment. */
+export function Inductor({ a, b, label, value }: { a: Pt; b: Pt; label?: string; value?: string }) {
+  const len = dist(a, b);
+  const mid = midpoint(a, b);
+  const ang = angle(a, b);
+  const COIL_LEN = 36;
+  const N_ARCS = 4;
+  const arcW = COIL_LEN / N_ARCS;
+  const arcR = arcW / 2;
+  const leadLen = Math.max(0, (len - COIL_LEN) / 2);
+  const cos = Math.cos((ang * Math.PI) / 180);
+  const sin = Math.sin((ang * Math.PI) / 180);
+  const leadAxEnd: Pt = [a[0] + cos * leadLen, a[1] + sin * leadLen];
+  const leadBxStart: Pt = [b[0] - cos * leadLen, b[1] - sin * leadLen];
+  // In local coordinates centered on mid, axis along x, arcs bulging up
+  const arcs: string[] = [];
+  for (let i = 0; i < N_ARCS; i++) {
+    const x0 = -COIL_LEN / 2 + i * arcW;
+    const x1 = x0 + arcW;
+    arcs.push(`M ${x0} 0 A ${arcR} ${arcR} 0 0 1 ${x1} 0`);
+  }
+  return (
+    <g>
+      <Wire path={`M ${a[0]} ${a[1]} L ${leadAxEnd[0]} ${leadAxEnd[1]}`} />
+      <Wire path={`M ${leadBxStart[0]} ${leadBxStart[1]} L ${b[0]} ${b[1]}`} />
+      <g transform={`translate(${mid[0]} ${mid[1]}) rotate(${ang})`}>
+        <path d={arcs.join(" ")} stroke={STROKE} strokeWidth={STROKE_W} fill="none" strokeLinecap="round" />
+      </g>
+      <PartLabel pos={mid} label={label} value={value} side={Math.abs(ang) < 45 ? "above" : "left"} />
+    </g>
+  );
+}
+
 /** Non-polarized capacitor — two parallel plates perpendicular to the lead. */
 export function Capacitor({ a, b, label, value }: { a: Pt; b: Pt; label?: string; value?: string }) {
   const len = dist(a, b);
