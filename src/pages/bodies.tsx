@@ -7,6 +7,7 @@ import { NonInvertingAmpDemo } from "@/circuits/NonInvertingAmpDemo";
 import { ActiveLowPassDemo } from "@/circuits/ActiveLowPassDemo";
 import { RectifierDemo } from "@/circuits/RectifierDemo";
 import { CommonEmitterDemo } from "@/circuits/CommonEmitterDemo";
+import { CommonEmitterBodeDemo } from "@/circuits/CommonEmitterBodeDemo";
 import { NmosSwitchDemo } from "@/circuits/NmosSwitchDemo";
 import { GbwTradeoffDemo } from "@/circuits/GbwTradeoffDemo";
 import { DemoPWM } from "@/demos/DemoPWM";
@@ -887,6 +888,25 @@ void loop() {
         Crank R<sub>C</sub> up and the gain grows; crank R<sub>E</sub> down and so does the gain (but bias gets twitchier).
         Push the input amplitude past ~50 mV and clipping appears at the output — the linear small-signal regime only holds
         for inputs much smaller than V<sub>T</sub> · (1 + R<sub>E</sub>/r<sub>e</sub>).
+      </p>
+      <h2>Frequency response (small-signal at op-point)</h2>
+      <p>
+        Same circuit, plotted in the frequency domain. The simulator finds the DC bias point first — Newton on V
+        <sub>BE</sub> and V<sub>BC</sub> until both junctions converge — then freezes that bias and replaces the transistor
+        with its small-signal model: a conductance{" "}
+        g<sub>m</sub> = ∂I<sub>C</sub>/∂V<sub>BE</sub> at the operating point, plus the rest of the Jacobian terms. The
+        circuit around it (R<sub>C</sub>, R<sub>E</sub>, the coupling cap, the bias divider) stays in its native form, and
+        the whole thing becomes a linear AC problem. SPICE calls this an{" "}
+        <code>.AC</code> analysis.
+      </p>
+      <CommonEmitterBodeDemo />
+      <p>
+        The high-pass corner at the bottom comes from C<sub>in</sub> looking into the parallel combination of the bias
+        divider and r<sub>π</sub> ≈ β·V<sub>T</sub>/I<sub>E</sub>. Drop C<sub>in</sub> by a decade and watch the corner
+        translate right by a decade. The flat midband is approximately −R<sub>C</sub> / (R<sub>E</sub> + r<sub>e</sub>) —
+        the same gain the transient demo gives. There's no high-frequency rolloff because this BJT model has no parasitic
+        capacitance (no C<sub>π</sub>, no Miller C<sub>μ</sub>); a real 2N3904 starts rolling off around the f<sub>T</sub>
+        / β corner, a few MHz with these biases.
       </p>
       <h2>Gotchas</h2>
       <ul>
