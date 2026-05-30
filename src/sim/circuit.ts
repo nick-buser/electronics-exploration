@@ -49,6 +49,38 @@ export type Element =
       Vt?: number;
       N?: number;
       ic?: number;
+    }
+  /** Ebers–Moll BJT (injection model). Terminals are collector / base /
+   *  emitter. `polarity: "npn" | "pnp"`. In NPN forward active, V_BE > 0
+   *  and the device sinks current at the collector. PNP is the mirror.
+   *  Defaults model a 2N3904-ish NPN. */
+  | {
+      kind: "Q";
+      id: string;
+      polarity: "npn" | "pnp";
+      c: string;
+      b: string;
+      e: string;
+      Is?: number;
+      Vt?: number;
+      betaF?: number;
+      betaR?: number;
+    }
+  /** Shichman–Hodges (SPICE Level-1) MOSFET. Terminals are drain / gate /
+   *  source (body tied to source). `polarity: "nmos" | "pmos"`. Three
+   *  regions: cutoff (V_GS_eff < 0), triode (V_DS < V_GS_eff), saturation
+   *  (V_DS ≥ V_GS_eff). Defaults model a 2N7000-ish NMOS. */
+  | {
+      kind: "M";
+      id: string;
+      polarity: "nmos" | "pmos";
+      d: string;
+      g: string;
+      s: string;
+      /** Transconductance parameter K = µ·Cox·(W/L). */
+      K?: number;
+      /** Threshold voltage. */
+      Vth?: number;
     };
 
 export interface Circuit {
@@ -69,6 +101,8 @@ export const GROUND = "gnd";
 /** Returns every node name referenced by an element. */
 export function elementNodes(e: Element): string[] {
   if (e.kind === "OP") return [e.vplus, e.vminus, e.vout];
+  if (e.kind === "Q") return [e.c, e.b, e.e];
+  if (e.kind === "M") return [e.d, e.g, e.s];
   return [e.a, e.b];
 }
 
