@@ -101,7 +101,7 @@ const DIODE_DEFAULTS = {
   N: 1.906,
 };
 
-function diodeParams(e: Extract<Element, { kind: "D" }>) {
+export function diodeParams(e: Extract<Element, { kind: "D" }>) {
   const Is = e.Is ?? DIODE_DEFAULTS.Is;
   const Vt = e.Vt ?? DIODE_DEFAULTS.Vt;
   const N = e.N ?? DIODE_DEFAULTS.N;
@@ -109,7 +109,7 @@ function diodeParams(e: Extract<Element, { kind: "D" }>) {
 }
 
 /** Tangent-line companion: I_D ≈ G_eq · V_D + I_eq. */
-function diodeCompanion(vd: number, Is: number, vtN: number) {
+export function diodeCompanion(vd: number, Is: number, vtN: number) {
   // Clamp the exponential argument so a divergent Newton step can't blow up
   // before the limiter kicks in. 30 → e^30 ≈ 1e13 — well within double range,
   // well past any operating point we actually care about.
@@ -143,7 +143,7 @@ const BJT_DEFAULTS = {
   betaR: 4,
 };
 
-function bjtParams(e: Extract<Element, { kind: "Q" }>) {
+export function bjtParams(e: Extract<Element, { kind: "Q" }>) {
   const Is = e.Is ?? BJT_DEFAULTS.Is;
   const Vt = e.Vt ?? BJT_DEFAULTS.Vt;
   const betaF = e.betaF ?? BJT_DEFAULTS.betaF;
@@ -157,7 +157,7 @@ function bjtParams(e: Extract<Element, { kind: "Q" }>) {
  *  terminal currents (NPN convention: positive INTO terminal) and the
  *  partial derivatives w.r.t. V_BE and V_BC. PNP devices wrap this with
  *  a sign flip on both the iterate and the resulting currents. */
-function bjtCompanion(
+export function bjtCompanion(
   vbe: number,
   vbc: number,
   p: ReturnType<typeof bjtParams>,
@@ -207,7 +207,7 @@ const MOS_DEFAULTS = {
  *  non-singular when the channel is fully cut off. */
 const MOS_GMIN = 1e-12;
 
-function mosParams(e: Extract<Element, { kind: "M" }>) {
+export function mosParams(e: Extract<Element, { kind: "M" }>) {
   const K = e.K ?? MOS_DEFAULTS.K;
   const Vth = e.Vth ?? MOS_DEFAULTS.Vth;
   return { K, Vth };
@@ -215,7 +215,7 @@ function mosParams(e: Extract<Element, { kind: "M" }>) {
 
 /** NMOS-form companion at (vgs, vds). Returns I_D (into drain) and the
  *  partials w.r.t. V_GS and V_DS. */
-function mosCompanion(vgs: number, vds: number, p: ReturnType<typeof mosParams>) {
+export function mosCompanion(vgs: number, vds: number, p: ReturnType<typeof mosParams>) {
   const vov = vgs - p.Vth; // overdrive
   let I_D: number;
   let gm: number;

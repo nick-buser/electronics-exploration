@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Circuit } from "../circuit";
 import { acSweep, impedanceFromSource, solveAc } from "../ac";
 import { abs } from "../complex";
+import { dcOperatingPoint } from "../transient";
 
 describe("AC analysis — RC low-pass", () => {
   it("hits -3 dB at the textbook corner", () => {
@@ -113,6 +114,80 @@ describe("AC analysis — finite-GBW op-amp", () => {
     // Well above corner — rolling off toward unity at GBW
     const past = solveAc(c, GBW, { vs: { mag: 1 } });
     expect(abs(past.v.vout)).toBeLessThan(1.2);
+  });
+});
+
+describe("AC small-signal at operating point", () => {
+  it("forward-biased diode looks like its small-signal conductance g_d = I/V_T", () => {
+    // Drive 5V through a 1kΩ resistor into a 1N4148-ish diode to gnd. The
+    // DC operating point gives V_D ≈ 0.68V, I ≈ 4.3 mA. The diode's
+    // dynamic resistance at this bias is r_d = N·V_T / I ≈ 12 Ω (with
+    // default N=1.906). When swept at any frequency, the cap-less circuit
+    // has no frequency dependence — |V_out / V_in| is a real divider:
+    //   V_out / V_in = r_d / (R + r_d)
+    const c: Circuit = {
+      elements: [
+        { kind: "V", id: "vs", a: "vin", b: "gnd", wave: { kind: "dc", value: 5 } },
+        { kind: "R", id: "r", a: "vin", b: "vd", value: 1000 },
+        { kind: "D", id: "d1", a: "vd", b: "gnd" },
+      ],
+    };
+    // Sanity: DC op
+    const dc = dcOperatingPoint(c);
+    expect(dc.v.vd).toBeGreaterThan(0.6);
+    expect(dc.v.vd).toBeLessThan(0.8);
+    const iBias = (5 - dc.v.vd) / 1000;
+    // r_d at this bias point (default N=1.906, Vt=0.025852)
+    const rd = (1.906 * 0.025852) / iBias;
+    const expectedRatio = rd / (1000 + rd);
+    // Inject a 1 V AC perturbation at vin (DC bias source is also vs;
+    // the AC stamp swaps in 1V phasor amplitude at that source). The
+    // diode is linearised at its DC bias, so the gain is frequency-flat.
+    const pts = acSweep(c, { fStart: 1, fStop: 1e6, nPoints: 31, inputs: { vs: { mag: 1 } } });
+    for (const p of pts) {
+      expect(abs(p.v.vd)).toBeGreaterThan(expectedRatio * 0.95);
+      expect(abs(p.v.vd)).toBeLessThan(expectedRatio * 1.05);
+    }
+  });
+
+  it("common-emitter BJT amplifier: midband gain matches -R_C/(R_E + r_e), HF rolloff via C_in", () => {
+    // Voltage-divider biased NPN, AC-coupled signal input. With the test
+    // values, I_C ≈ 2 mA so r_e ≈ V_T/I_E ≈ 12.5 Ω; midband |gain| ≈
+    // R_C / (R_E + r_e) ≈ 3300 / 482 ≈ 6.85.
+    const c: Circuit = {
+      elements: [
+        { kind: "V", id: "vcc", a: "vcc", b: "gnd", wave: { kind: "dc", value: 9 } },
+        { kind: "R", id: "rb1", a: "vcc", b: "base", value: 47000 },
+        { kind: "R", id: "rb2", a: "base", b: "gnd", value: 10000 },
+        { kind: "V", id: "vs", a: "vin", b: "gnd", wave: { kind: "dc", value: 0 } },
+        { kind: "C", id: "cin", a: "vin", b: "base", value: 10e-6 },
+        { kind: "R", id: "rc", a: "vcc", b: "coll", value: 3300 },
+        { kind: "R", id: "re", a: "emit", b: "gnd", value: 470 },
+        { kind: "Q", id: "q1", polarity: "npn", c: "coll", b: "base", e: "emit" },
+      ],
+    };
+    // Sanity: bias point looks active
+    const dc = dcOperatingPoint(c);
+    expect(dc.v.base).toBeGreaterThan(1.4);
+    expect(dc.v.base).toBeLessThan(1.8);
+    expect(dc.ic.q1).toBeGreaterThan(1.5e-3);
+    expect(dc.ic.q1).toBeLessThan(3e-3);
+
+    // Probe at midband (well above C_in corner, below any other poles)
+    const mid = solveAc(c, 10e3, { vs: { mag: 1 } });
+    const midGain = abs(mid.v.coll);
+    expect(midGain).toBeGreaterThan(5);
+    expect(midGain).toBeLessThan(8);
+
+    // Way below the coupling-cap corner, the cap blocks → gain → 0
+    const lo = solveAc(c, 0.01, { vs: { mag: 1 } });
+    expect(abs(lo.v.coll)).toBeLessThan(midGain * 0.05);
+
+    // Above the coupling-cap corner but below any model-side rolloff, gain
+    // stays at the midband value (our model has no parasitic Cπ/Cμ)
+    const hi = solveAc(c, 1e6, { vs: { mag: 1 } });
+    expect(abs(hi.v.coll)).toBeGreaterThan(midGain * 0.95);
+    expect(abs(hi.v.coll)).toBeLessThan(midGain * 1.05);
   });
 });
 

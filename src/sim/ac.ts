@@ -17,6 +17,16 @@
  */
 import { buildNodeMap, type Circuit, type Element, type NodeMap } from "./circuit";
 import { abs, add, cx, div, mul, neg, sub, type Complex, ZERO } from "./complex";
+import {
+  bjtCompanion,
+  bjtParams,
+  diodeCompanion,
+  diodeParams,
+  mosCompanion,
+  mosParams,
+  type StepResult,
+} from "./mna";
+import { dcOperatingPoint } from "./transient";
 
 export interface AcInput {
   /** Phasor magnitude. */
@@ -34,6 +44,12 @@ export interface AcOptions {
   nPoints: number;
   /** Source id → phasor amplitude. Sources not listed contribute 0. */
   inputs: Record<string, AcInput>;
+  /** Pre-computed DC operating point used to linearise nonlinear elements
+   *  (diodes, BJTs, MOSFETs). If omitted and the circuit contains any
+   *  nonlinear elements, acSweep will compute one automatically via
+   *  dcOperatingPoint(). Provide your own when running multiple sweeps
+   *  at the same operating point to avoid the redundant work. */
+  opPoint?: StepResult;
 }
 
 export interface AcPoint {
@@ -46,16 +62,28 @@ export interface AcPoint {
 
 export function acSweep(circuit: Circuit, opts: AcOptions): AcPoint[] {
   const freqs = logSpace(opts.fStart, opts.fStop, opts.nPoints);
-  return freqs.map((f) => solveAc(circuit, f, opts.inputs));
+  const opPoint = opts.opPoint ?? maybeOpPoint(circuit);
+  return freqs.map((f) => solveAc(circuit, f, opts.inputs, opPoint));
+}
+
+function maybeOpPoint(circuit: Circuit): StepResult | undefined {
+  const hasNonlinear = circuit.elements.some(
+    (e) => e.kind === "D" || e.kind === "Q" || e.kind === "M",
+  );
+  return hasNonlinear ? dcOperatingPoint(circuit) : undefined;
 }
 
 export function solveAc(
   circuit: Circuit,
   frequency: number,
   inputs: Record<string, AcInput>,
+  opPoint?: StepResult,
 ): AcPoint {
   const nodes = buildNodeMap(circuit);
   const omega = 2 * Math.PI * frequency;
+  // Auto-compute op-point if the caller didn't provide one but the
+  // circuit contains nonlinear elements.
+  const bias = opPoint ?? maybeOpPoint(circuit);
   const sources: Element[] = circuit.elements.filter((e) => e.kind === "V");
   const opamps: Element[] = circuit.elements.filter((e) => e.kind === "OP");
   const nSrc = sources.length;
@@ -74,6 +102,39 @@ export function solveAc(
     } else if (e.kind === "L") {
       // Y = 1/(jωL) = -j/(ωL)
       stampY(A, nodes, e.a, e.b, cx(0, -1 / (omega * e.value)));
+    }
+  }
+
+  // Nonlinear elements: linearise around the DC operating point. Each
+  // element's Newton-companion Jacobian IS its small-signal admittance
+  // matrix at the bias. The Jacobian terms go into the complex MNA matrix;
+  // the constant I_eq offset is discarded (small-signal AC is about
+  // perturbations from the bias, not absolute currents).
+  if (bias) {
+    for (const e of circuit.elements) {
+      if (e.kind === "D") {
+        const { Is, vtN } = diodeParams(e);
+        const vd = bias.vd[e.id] ?? 0;
+        const { Geq } = diodeCompanion(vd, Is, vtN);
+        stampY(A, nodes, e.a, e.b, cx(Geq));
+      } else if (e.kind === "Q") {
+        const p = bjtParams(e);
+        const s = e.polarity === "npn" ? 1 : -1;
+        const vbeEff = s * ((bias.v[e.b] ?? 0) - (bias.v[e.e] ?? 0));
+        const vbcEff = s * ((bias.v[e.b] ?? 0) - (bias.v[e.c] ?? 0));
+        const c = bjtCompanion(vbeEff, vbcEff, p);
+        stampBjtAdmittance(A, nodes, e.c, e.b, e.c, e.e, c.dIC_dVBE, c.dIC_dVBC);
+        stampBjtAdmittance(A, nodes, e.b, e.b, e.c, e.e, c.dIB_dVBE, c.dIB_dVBC);
+        stampBjtAdmittance(A, nodes, e.e, e.b, e.c, e.e, c.dIE_dVBE, c.dIE_dVBC);
+      } else if (e.kind === "M") {
+        const p = mosParams(e);
+        const s = e.polarity === "nmos" ? 1 : -1;
+        const vgs = s * ((bias.v[e.g] ?? 0) - (bias.v[e.s] ?? 0));
+        const vds = s * ((bias.v[e.d] ?? 0) - (bias.v[e.s] ?? 0));
+        const { gm, gds } = mosCompanion(vgs, vds, p);
+        stampMosAdmittance(A, nodes, e.d, e.d, e.g, e.s, gm, gds);
+        stampMosAdmittance(A, nodes, e.s, e.d, e.g, e.s, -gm, -gds);
+      }
     }
   }
 
@@ -135,6 +196,51 @@ export function solveAc(
 }
 
 /* ── helpers ───────────────────────────────────────────── */
+
+/** Complex-valued analogue of stampBjtTerminal from mna.ts. Stamps the
+ *  small-signal admittance contributions from one BJT terminal into the
+ *  complex MNA matrix. No RHS offset — small-signal AC sees only
+ *  perturbations from the bias point. */
+function stampBjtAdmittance(
+  A: Complex[][],
+  nodes: NodeMap,
+  term: string,
+  bNode: string,
+  cNode: string,
+  eNode: string,
+  dIdVbe: number,
+  dIdVbc: number,
+): void {
+  const iT = nodes.index.get(term) ?? 0;
+  if (iT === 0) return;
+  const ib = nodes.index.get(bNode) ?? 0;
+  const ic = nodes.index.get(cNode) ?? 0;
+  const ie = nodes.index.get(eNode) ?? 0;
+  if (ib > 0) A[iT - 1][ib - 1] = add(A[iT - 1][ib - 1], cx(dIdVbe + dIdVbc));
+  if (ic > 0) A[iT - 1][ic - 1] = add(A[iT - 1][ic - 1], cx(-dIdVbc));
+  if (ie > 0) A[iT - 1][ie - 1] = add(A[iT - 1][ie - 1], cx(-dIdVbe));
+}
+
+/** Complex-valued analogue of stampMosTerminal. */
+function stampMosAdmittance(
+  A: Complex[][],
+  nodes: NodeMap,
+  term: string,
+  dNode: string,
+  gNode: string,
+  sNode: string,
+  gm: number,
+  gds: number,
+): void {
+  const iT = nodes.index.get(term) ?? 0;
+  if (iT === 0) return;
+  const iD = nodes.index.get(dNode) ?? 0;
+  const iG = nodes.index.get(gNode) ?? 0;
+  const iS = nodes.index.get(sNode) ?? 0;
+  if (iG > 0) A[iT - 1][iG - 1] = add(A[iT - 1][iG - 1], cx(gm));
+  if (iD > 0) A[iT - 1][iD - 1] = add(A[iT - 1][iD - 1], cx(gds));
+  if (iS > 0) A[iT - 1][iS - 1] = add(A[iT - 1][iS - 1], cx(-(gm + gds)));
+}
 
 function stampY(A: Complex[][], nodes: NodeMap, a: string, b: string, Y: Complex) {
   const ia = nodes.index.get(a) ?? 0;
