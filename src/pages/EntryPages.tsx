@@ -30,6 +30,7 @@ import {
   ToolBodies,
 } from "./bodies";
 import { CardGrid, CardLink, PageHead, SpecTable, StatusPill } from "./elements";
+import { Backlinks } from "./Backlinks";
 
 /* ── Domain ───────────────────────────────────────────── */
 export function DomainPage({ entry }: { entry: Domain }) {
@@ -51,6 +52,10 @@ export function DomainPage({ entry }: { entry: Domain }) {
       <Section title="Components" items={components} />
       <Section title="Tools" items={tools} />
       <Section title="Comparisons" items={comparisons} />
+      <Backlinks
+        slug={entry.slug}
+        exclude={(e) => "domain" in e && e.domain === entry.slug}
+      />
     </div>
   );
 }
@@ -78,6 +83,10 @@ export function ArchetypePage({ entry }: { entry: Archetype }) {
       <PageHead entry={entry} />
       {Body ? <Body /> : <p>{entry.deck}</p>}
       <Section title="Concrete builds" items={projects} />
+      <Backlinks
+        slug={entry.slug}
+        exclude={(e) => e.type === "project" && e.archetype === entry.slug}
+      />
     </div>
   );
 }
@@ -149,6 +158,10 @@ export function ProjectPage({ entry }: { entry: Project }) {
           </div>
         </>
       )}
+      <Backlinks
+        slug={entry.slug}
+        exclude={(e) => e.type === "journal" && e.project === entry.slug}
+      />
     </div>
   );
 }
@@ -166,6 +179,7 @@ export function ComponentPage({ entry }: { entry: Component }) {
           Stub. Add the canonical info you keep forgetting: pinout, power, gotchas, datasheet link, projects you've used it in.
         </p>
       )}
+      <Backlinks slug={entry.slug} />
     </div>
   );
 }
@@ -181,6 +195,7 @@ export function ToolPage({ entry }: { entry: Tool }) {
       ) : (
         <p>Stub. Add the rationale for owning this, what to buy first, common modes, and the most common mistakes.</p>
       )}
+      <Backlinks slug={entry.slug} />
     </div>
   );
 }
@@ -196,6 +211,7 @@ export function PrinciplePage({ entry }: { entry: Principle }) {
       ) : (
         <p>Stub. Add the intuition, the formal version, when it breaks, and which projects taught you about it.</p>
       )}
+      <Backlinks slug={entry.slug} />
     </div>
   );
 }
@@ -207,6 +223,7 @@ export function ComparisonPage({ entry }: { entry: Comparison }) {
     <div className="prose-bench">
       <PageHead entry={entry} />
       {Body ? <Body /> : <p>{entry.deck}</p>}
+      <Backlinks slug={entry.slug} />
     </div>
   );
 }
@@ -234,6 +251,7 @@ export function JournalPage({ entry }: { entry: Journal }) {
         {entry.date}
       </div>
       {Body ? <Body /> : <p>{entry.deck}</p>}
+      <Backlinks slug={entry.slug} />
     </div>
   );
 }
