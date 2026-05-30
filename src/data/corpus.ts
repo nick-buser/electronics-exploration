@@ -55,6 +55,8 @@ export const COMPONENTS: Component[] = [
   { type: "component", slug: "c-ads1299", title: "ADS1299", domain: "bio", deck: "8-channel 24-bit Σ-Δ ADC built for EEG. Low-noise, high-impedance, the heart of OpenBCI." },
   { type: "component", slug: "c-ina219", title: "INA219", domain: "ee", deck: "I²C current/voltage shunt monitor. The cheap way to see what your circuit is actually drawing." },
   { type: "component", slug: "c-1n4148", title: "1N4148", domain: "ee", deck: "The default small-signal switching diode. ~4 ns recovery, ~700 mV forward drop, in every parts bin worth having." },
+  { type: "component", slug: "c-2n3904", title: "2N3904 NPN", domain: "ee", deck: "Workhorse small-signal NPN transistor. β ≈ 200, 40V/200mA, TO-92 — the default first BJT in a lot of designs." },
+  { type: "component", slug: "c-2n7000", title: "2N7000 NMOS", domain: "ee", deck: "Small-signal N-channel enhancement MOSFET. Vth ≈ 1.5V, drives 200mA. Cheap, common, TO-92 — what you reach for when an MCU pin can't sink enough current." },
 ];
 
 export const TOOLS: Tool[] = [

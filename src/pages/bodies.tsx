@@ -6,6 +6,8 @@ import { DecouplingZDemo } from "@/circuits/DecouplingZDemo";
 import { NonInvertingAmpDemo } from "@/circuits/NonInvertingAmpDemo";
 import { ActiveLowPassDemo } from "@/circuits/ActiveLowPassDemo";
 import { RectifierDemo } from "@/circuits/RectifierDemo";
+import { CommonEmitterDemo } from "@/circuits/CommonEmitterDemo";
+import { NmosSwitchDemo } from "@/circuits/NmosSwitchDemo";
 import { DemoPWM } from "@/demos/DemoPWM";
 import { DemoBus } from "@/demos/DemoBus";
 import { DemoPID } from "@/demos/DemoPID";
@@ -822,6 +824,119 @@ void loop() {
         <li>
           <strong>For rectifying mains</strong>, reach for a 1N4007 (1 A, 1 kV) or a Schottky like the SS14 (low V<sub>D</sub>,
           fast). The 1N4148 is for signals, not power.
+        </li>
+      </ul>
+    </>
+  ),
+  "c-2n3904": () => (
+    <>
+      <h2>What it is</h2>
+      <p>
+        Workhorse small-signal NPN BJT in a TO-92 plastic package. ~200 mA continuous collector current, 40 V V<sub>CEO</sub>,
+        β<sub>F</sub> typically ≈ 100–300. It and its PNP complement the 2N3906 are still in every parts kit a decade after
+        better parts exist, because they're cheap, well-modelled, and good enough for almost any small-signal job: signal
+        amplifiers, level shifters, small relay drivers, oscillators, current mirrors.
+      </p>
+      <h2>The model</h2>
+      <p>
+        The simulator uses Ebers-Moll in injection form: two diodes (B-E and B-C junctions) plus controlled current sources
+        that account for charge carriers swept across the base. In NPN forward active (V<sub>BE</sub> ≳ 0.6 V, V<sub>BC</sub>{" "}
+        &lt; 0):
+      </p>
+      <Callout label="// math">
+        I<sub>C</sub> ≈ I<sub>S</sub> · exp(V<sub>BE</sub> / V<sub>T</sub>) &nbsp;·&nbsp; I<sub>B</sub> ≈ I<sub>C</sub> / β
+        <sub>F</sub> &nbsp;·&nbsp; I<sub>E</sub> = −(I<sub>C</sub> + I<sub>B</sub>)
+      </Callout>
+      <p>
+        Same Newton iteration as a diode, just with three terminals and a 3×3 Jacobian per BJT instead of one number per diode.
+        The Newton iterate tracks V<sub>BE</sub> and V<sub>BC</sub> separately; pn-junction limiting applies to both.
+      </p>
+      <h2>Common-emitter amplifier</h2>
+      <p>
+        The canonical small-signal BJT stage: a voltage divider sets the base around 1.5 V, R<sub>E</sub> stabilises the bias
+        against β variation and adds linearity, R<sub>C</sub> converts swinging collector current into voltage at the output.
+        Voltage gain is approximately −R<sub>C</sub> / R<sub>E</sub>, set by a resistor ratio and not by anything the
+        transistor cares about. AC-couple the input through a cap so the source doesn't pull the bias around.
+      </p>
+      <CommonEmitterDemo />
+      <p>
+        Crank R<sub>C</sub> up and the gain grows; crank R<sub>E</sub> down and so does the gain (but bias gets twitchier).
+        Push the input amplitude past ~50 mV and clipping appears at the output — the linear small-signal regime only holds
+        for inputs much smaller than V<sub>T</sub> · (1 + R<sub>E</sub>/r<sub>e</sub>).
+      </p>
+      <h2>Gotchas</h2>
+      <ul>
+        <li>
+          <strong>β has a lot of variation</strong> — don't design anything that critically depends on it. Treat β as
+          "somewhere between 100 and 300" and let the topology (degeneration, current mirrors, etc.) absorb the spread.
+        </li>
+        <li>
+          <strong>V<sub>BE</sub> drifts with temperature</strong> — about −2 mV/°C at constant I<sub>C</sub>. Hot transistor →
+          more current → hotter still. Use emitter degeneration or a current source to keep this from running away.
+        </li>
+        <li>
+          <strong>Saturation is slow</strong>. Driving a BJT switch hard into saturation stores excess base charge that takes
+          microseconds to clear — a problem for fast switching. Use a Baker clamp or just switch to a MOSFET.
+        </li>
+        <li>
+          <strong>For real currents, use a power BJT</strong> (TIP31, BD139) or a Darlington pair. The 2N3904 dies above ~200
+          mA continuous.
+        </li>
+      </ul>
+    </>
+  ),
+  "c-2n7000": () => (
+    <>
+      <h2>What it is</h2>
+      <p>
+        Small-signal N-channel enhancement-mode MOSFET in a TO-92 package. Vth ≈ 1.5–2.5 V (logic-level — important — the
+        related 2N7002 needs a higher V<sub>GS</sub>), R<sub>DS(on)</sub> ≈ 5 Ω at V<sub>GS</sub> = 10 V, drain current up to
+        200 mA. The default part to reach for when a 5 V MCU pin can't sink enough current and you don't want to build a
+        full BJT stage.
+      </p>
+      <h2>The model</h2>
+      <p>
+        Simulator uses Shichman-Hodges (SPICE Level 1) — the textbook piecewise-quadratic model with three regions:
+      </p>
+      <Callout label="// math">
+        cutoff: I<sub>D</sub> = 0 when V<sub>GS</sub> &lt; V<sub>th</sub>
+        <br />
+        triode: I<sub>D</sub> = K · [(V<sub>GS</sub> − V<sub>th</sub>) · V<sub>DS</sub> − V<sub>DS</sub>² / 2]
+        <br />
+        saturation: I<sub>D</sub> = (K/2) · (V<sub>GS</sub> − V<sub>th</sub>)²
+      </Callout>
+      <p>
+        No body effect, no channel-length modulation, no subthreshold conduction. Good enough to teach the regions; not good
+        enough to design an analog ASIC with. The Newton iterate tracks V<sub>GS</sub> and V<sub>DS</sub>; a tiny GMIN
+        conductance sits across drain-source so a fully cut-off channel doesn't leave the matrix singular.
+      </p>
+      <h2>Low-side switch</h2>
+      <p>
+        The simplest useful FET circuit: load between supply and drain, source to ground, gate driven by a logic pin. Gate
+        high → MOSFET conducts → load energised. Gate low → MOSFET cuts off → load disconnected. Drag the gate frequency and
+        duty cycle below and watch the drain (V<sub>DS</sub>) swing between supply and ~0V.
+      </p>
+      <NmosSwitchDemo />
+      <h2>Gotchas</h2>
+      <ul>
+        <li>
+          <strong>"Logic level" actually means V<sub>th</sub> low enough that a 3.3V or 5V pin gets you well into saturation
+          </strong> — read the datasheet, don't assume. Plenty of "small-signal" MOSFETs need V<sub>GS</sub> ≥ 10 V to turn
+          fully on.
+        </li>
+        <li>
+          <strong>Gate charge is real</strong>. The gate looks like a capacitor (~50 pF for a 2N7000). Driving it fast through
+          a high-impedance source means the MOSFET spends real time in the linear region while switching, where it dissipates
+          power. For fast switching at any current, use a dedicated gate driver.
+        </li>
+        <li>
+          <strong>Inductive loads need a flyback diode</strong> across them. When you cut the channel, the load's stored energy
+          has nowhere to go and the V<sub>DS</sub> spike will pop the FET.
+        </li>
+        <li>
+          <strong>The body diode is always there</strong>. NMOS has an intrinsic diode from source to drain. It's why you can't
+          block reverse current with a single FET — and why a single FET <em>does</em> work as a synchronous rectifier when
+          driven by external logic.
         </li>
       </ul>
     </>

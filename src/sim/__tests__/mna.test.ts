@@ -142,6 +142,129 @@ describe("MNA — op-amp configurations", () => {
   });
 });
 
+describe("MNA — BJT (Ebers-Moll, Newton iteration)", () => {
+  it("NPN common-emitter sets I_C ≈ β · I_B in forward active", () => {
+    // 5V rail through 470kΩ into base, 1kΩ from collector to rail, emitter
+    // to ground. Base current should set up the active-region operating
+    // point with I_C around β·I_B.
+    const c: Circuit = {
+      elements: [
+        { kind: "V", id: "vcc", a: "vcc", b: "gnd", wave: { kind: "dc", value: 5 } },
+        { kind: "R", id: "rb", a: "vcc", b: "base", value: 470000 },
+        { kind: "R", id: "rc", a: "vcc", b: "coll", value: 1000 },
+        { kind: "Q", id: "q1", polarity: "npn", c: "coll", b: "base", e: "gnd" },
+      ],
+    };
+    const r = dcOperatingPoint(c);
+    // V_BE in the active-region range
+    expect(r.vbe.q1).toBeGreaterThan(0.55);
+    expect(r.vbe.q1).toBeLessThan(0.8);
+    // I_C >> I_B (forward active)
+    expect(r.ic.q1).toBeGreaterThan(0);
+    expect(r.ib.q1).toBeGreaterThan(0);
+    const beta = r.ic.q1 / r.ib.q1;
+    // Default β_F = 200; expect β reasonably close
+    expect(beta).toBeGreaterThan(100);
+    expect(beta).toBeLessThan(300);
+    // KCL closure: I_C + I_B + I_E ≈ 0
+    expect(Math.abs(r.ic.q1 + r.ib.q1 + r.ie.q1)).toBeLessThan(1e-9);
+  });
+
+  it("PNP mirrors NPN — currents flip sign for the same biasing topology", () => {
+    // PNP with emitter at +5V, base at +5V through 470kΩ from gnd, collector
+    // through 1kΩ to gnd. In active region, I_E > 0 (into emitter from rail),
+    // I_C < 0 (out of collector to load), I_B < 0 (out of base).
+    const c: Circuit = {
+      elements: [
+        { kind: "V", id: "vcc", a: "vcc", b: "gnd", wave: { kind: "dc", value: 5 } },
+        { kind: "R", id: "rb", a: "base", b: "gnd", value: 470000 },
+        { kind: "R", id: "rc", a: "coll", b: "gnd", value: 1000 },
+        { kind: "Q", id: "q1", polarity: "pnp", c: "coll", b: "base", e: "vcc" },
+      ],
+    };
+    const r = dcOperatingPoint(c);
+    expect(r.vbe.q1).toBeGreaterThan(-0.8); // negative for PNP active
+    expect(r.vbe.q1).toBeLessThan(-0.55);
+    expect(r.ic.q1).toBeLessThan(0); // out of collector
+    expect(r.ib.q1).toBeLessThan(0); // out of base
+    expect(r.ie.q1).toBeGreaterThan(0); // into emitter
+    expect(Math.abs(r.ic.q1 + r.ib.q1 + r.ie.q1)).toBeLessThan(1e-9);
+  });
+
+  it("NPN with zero base drive sits in cutoff", () => {
+    const c: Circuit = {
+      elements: [
+        { kind: "V", id: "vcc", a: "vcc", b: "gnd", wave: { kind: "dc", value: 5 } },
+        { kind: "R", id: "rc", a: "vcc", b: "coll", value: 1000 },
+        { kind: "R", id: "rb", a: "base", b: "gnd", value: 100000 },
+        { kind: "Q", id: "q1", polarity: "npn", c: "coll", b: "base", e: "gnd" },
+      ],
+    };
+    const r = dcOperatingPoint(c);
+    expect(Math.abs(r.ic.q1)).toBeLessThan(1e-6);
+    expect(r.v.coll).toBeGreaterThan(4.9); // collector pulled up by rc
+  });
+});
+
+describe("MNA — MOSFET (Shichman-Hodges, Newton iteration)", () => {
+  it("NMOS in cutoff passes essentially no drain current", () => {
+    // V_GS = 0.5V which is well below the default Vth of 1.5V → cutoff.
+    const c: Circuit = {
+      elements: [
+        { kind: "V", id: "vdd", a: "vdd", b: "gnd", wave: { kind: "dc", value: 5 } },
+        { kind: "V", id: "vgg", a: "gate", b: "gnd", wave: { kind: "dc", value: 0.5 } },
+        { kind: "R", id: "rd", a: "vdd", b: "drain", value: 1000 },
+        { kind: "M", id: "m1", polarity: "nmos", d: "drain", g: "gate", s: "gnd" },
+      ],
+    };
+    const r = dcOperatingPoint(c);
+    expect(Math.abs(r.idmos.m1)).toBeLessThan(1e-9);
+    expect(r.v.drain).toBeGreaterThan(4.99); // R_D drops almost nothing
+  });
+
+  it("NMOS in saturation: I_D = K/2 · (V_GS - Vth)²", () => {
+    // V_GS = 3V, Vth = 1.5V, K = 0.05 → expected I_D = 0.05/2 · 1.5² = 56.25 mA
+    // But that'd drop 56V across a 1k load, so use a 50Ω load instead.
+    const c: Circuit = {
+      elements: [
+        { kind: "V", id: "vdd", a: "vdd", b: "gnd", wave: { kind: "dc", value: 5 } },
+        { kind: "V", id: "vgg", a: "gate", b: "gnd", wave: { kind: "dc", value: 3 } },
+        { kind: "R", id: "rd", a: "vdd", b: "drain", value: 50 },
+        { kind: "M", id: "m1", polarity: "nmos", d: "drain", g: "gate", s: "gnd" },
+      ],
+    };
+    const r = dcOperatingPoint(c);
+    // Self-consistency: I_D · R_D + V_D = 5 (KCL/KVL)
+    expect(r.idmos.m1 * 50 + r.v.drain).toBeCloseTo(5, 3);
+    // V_GS - Vth = 1.5; if MOSFET were in saturation alone (no load) the
+    // current would be 56 mA. With a 50Ω drop, V_D falls into triode region.
+    // Either way, I_D should be tens of mA.
+    expect(r.idmos.m1).toBeGreaterThan(0.02);
+    expect(r.idmos.m1).toBeLessThan(0.06);
+  });
+
+  it("NMOS used as a switch: high gate drains load, low gate doesn't", () => {
+    // High side: 5V rail → 100Ω load → drain. Gate driven to 5V (on) then
+    // to 0V (off). Compare both operating points.
+    const buildWithVg = (vg: number): Circuit => ({
+      elements: [
+        { kind: "V", id: "vdd", a: "vdd", b: "gnd", wave: { kind: "dc", value: 5 } },
+        { kind: "V", id: "vgg", a: "gate", b: "gnd", wave: { kind: "dc", value: vg } },
+        { kind: "R", id: "rl", a: "vdd", b: "drain", value: 100 },
+        { kind: "M", id: "m1", polarity: "nmos", d: "drain", g: "gate", s: "gnd" },
+      ],
+    });
+    const on = dcOperatingPoint(buildWithVg(5));
+    const off = dcOperatingPoint(buildWithVg(0));
+    // ON: current flowing, drain pulled close to gnd
+    expect(on.idmos.m1).toBeGreaterThan(0.04);
+    expect(on.v.drain).toBeLessThan(1); // R_DS(on) tiny vs 100Ω load
+    // OFF: no current, drain held at supply
+    expect(Math.abs(off.idmos.m1)).toBeLessThan(1e-9);
+    expect(off.v.drain).toBeGreaterThan(4.99);
+  });
+});
+
 describe("MNA — diodes (Newton iteration)", () => {
   it("forward bias: V_D + I·R = V_src and I matches the Shockley equation", () => {
     // 5V source through 1kΩ into a 1N4148-ish diode to ground. Expected

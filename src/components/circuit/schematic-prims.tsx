@@ -287,6 +287,207 @@ export function Diode({ a, b, label, value }: { a: Pt; b: Pt; label?: string; va
   );
 }
 
+/* ── BJT ───────────────────────────────────────────────── */
+
+const BJT_BODY_R = 12;
+const BJT_W = 36;
+const BJT_H = 44;
+
+export type BjtPins = { c: Pt; b: Pt; e: Pt };
+
+/** Pin coordinates for a BJT centered at `at`. Collector is up, emitter
+ *  down, base on the left. */
+export function bjtPins(at: Pt): BjtPins {
+  return {
+    c: [at[0], at[1] - BJT_H / 2],
+    b: [at[0] - BJT_W / 2, at[1]],
+    e: [at[0], at[1] + BJT_H / 2],
+  };
+}
+
+export function NpnBjt({ at, label }: { at: Pt; label?: string }) {
+  return <BjtBody at={at} polarity="npn" label={label} />;
+}
+export function PnpBjt({ at, label }: { at: Pt; label?: string }) {
+  return <BjtBody at={at} polarity="pnp" label={label} />;
+}
+
+function BjtBody({
+  at,
+  polarity,
+  label,
+}: {
+  at: Pt;
+  polarity: "npn" | "pnp";
+  label?: string;
+}) {
+  const cx = at[0];
+  const cy = at[1];
+  const collY = cy - BJT_H / 2;
+  const emY = cy + BJT_H / 2;
+  const bX = cx - BJT_W / 2;
+  // Base horizontal stub
+  const baseStubX = cx - BJT_BODY_R;
+  // Vertical "base bar"
+  const barTop = cy - BJT_BODY_R + 2;
+  const barBot = cy + BJT_BODY_R - 2;
+  // Collector + emitter slanted leads
+  const slantTopX = cx + 8;
+  const slantTopY = cy - BJT_BODY_R + 3;
+  const slantBotX = cx + 8;
+  const slantBotY = cy + BJT_BODY_R - 3;
+  // Arrow on emitter for direction
+  const arrowSize = 5;
+  return (
+    <g>
+      {/* Base lead */}
+      <Wire path={`M ${bX} ${cy} L ${baseStubX} ${cy}`} />
+      {/* Base bar */}
+      <line
+        x1={baseStubX}
+        y1={barTop}
+        x2={baseStubX}
+        y2={barBot}
+        stroke={STROKE}
+        strokeWidth={STROKE_W + 0.5}
+        strokeLinecap="round"
+      />
+      {/* Collector lead and slant */}
+      <line x1={baseStubX} y1={cy - 6} x2={slantTopX} y2={slantTopY} stroke={STROKE} strokeWidth={STROKE_W} />
+      <Wire path={`M ${slantTopX} ${slantTopY} L ${cx} ${cy - BJT_BODY_R + 3} L ${cx} ${collY}`} />
+      {/* Emitter lead and slant */}
+      <line x1={baseStubX} y1={cy + 6} x2={slantBotX} y2={slantBotY} stroke={STROKE} strokeWidth={STROKE_W} />
+      <Wire path={`M ${slantBotX} ${slantBotY} L ${cx} ${cy + BJT_BODY_R - 3} L ${cx} ${emY}`} />
+      {/* Emitter arrow: NPN points OUT of device, PNP points IN */}
+      {polarity === "npn" ? (
+        <polygon
+          points={`${slantBotX - 1},${slantBotY + 1} ${slantBotX - arrowSize},${slantBotY - arrowSize / 2 + 1} ${slantBotX - arrowSize / 2},${slantBotY + arrowSize - 1}`}
+          fill={STROKE}
+          stroke={STROKE}
+        />
+      ) : (
+        <polygon
+          points={`${baseStubX + 1},${cy + 6 - 1} ${baseStubX + arrowSize},${cy + 6 + arrowSize / 2 - 1} ${baseStubX + arrowSize / 2},${cy + 6 - arrowSize + 1}`}
+          fill={STROKE}
+          stroke={STROKE}
+        />
+      )}
+      {/* Optional circle around body for completeness */}
+      <circle cx={cx + 2} cy={cy} r={14} fill="none" stroke={STROKE} strokeWidth={1} opacity={0.4} />
+      {label && (
+        <text
+          x={cx + 20}
+          y={cy + 4}
+          fontFamily="var(--font-mono)"
+          fontSize={10}
+          fill={LABEL_FILL}
+        >
+          {label}
+        </text>
+      )}
+    </g>
+  );
+}
+
+/* ── MOSFET ────────────────────────────────────────────── */
+
+const MOS_W = 36;
+const MOS_H = 44;
+
+export type MosPins = { d: Pt; g: Pt; s: Pt };
+
+export function mosPins(at: Pt): MosPins {
+  return {
+    d: [at[0], at[1] - MOS_H / 2],
+    g: [at[0] - MOS_W / 2, at[1]],
+    s: [at[0], at[1] + MOS_H / 2],
+  };
+}
+
+export function Nmos({ at, label }: { at: Pt; label?: string }) {
+  return <MosBody at={at} polarity="nmos" label={label} />;
+}
+export function Pmos({ at, label }: { at: Pt; label?: string }) {
+  return <MosBody at={at} polarity="pmos" label={label} />;
+}
+
+function MosBody({
+  at,
+  polarity,
+  label,
+}: {
+  at: Pt;
+  polarity: "nmos" | "pmos";
+  label?: string;
+}) {
+  const cx = at[0];
+  const cy = at[1];
+  const dY = cy - MOS_H / 2;
+  const sY = cy + MOS_H / 2;
+  const gX = cx - MOS_W / 2;
+  // Gate has a small gap from the channel bar (the famous "insulated gate")
+  const gateBarX = cx - 10;
+  const channelBarX = cx - 6;
+  const barTop = cy - 12;
+  const barBot = cy + 12;
+  const arrowSize = 5;
+  return (
+    <g>
+      {/* Gate lead + gate bar (left, separated from channel) */}
+      <Wire path={`M ${gX} ${cy} L ${gateBarX} ${cy}`} />
+      <line
+        x1={gateBarX}
+        y1={barTop}
+        x2={gateBarX}
+        y2={barBot}
+        stroke={STROKE}
+        strokeWidth={STROKE_W + 0.5}
+        strokeLinecap="round"
+      />
+      {/* Channel bar (right of gate, with a small gap to show the insulator) */}
+      <line
+        x1={channelBarX}
+        y1={barTop + 1}
+        x2={channelBarX}
+        y2={barBot - 1}
+        stroke={STROKE}
+        strokeWidth={STROKE_W + 0.5}
+        strokeLinecap="round"
+      />
+      {/* Drain (top) */}
+      <Wire path={`M ${channelBarX} ${barTop + 4} L ${cx + 4} ${barTop + 4} L ${cx + 4} ${dY}`} />
+      <Wire path={`M ${cx + 4} ${dY} L ${cx} ${dY}`} />
+      {/* Source (bottom) */}
+      <Wire path={`M ${channelBarX} ${barBot - 4} L ${cx + 4} ${barBot - 4} L ${cx + 4} ${sY}`} />
+      <Wire path={`M ${cx + 4} ${sY} L ${cx} ${sY}`} />
+      {/* Body / source tie + arrow (NMOS arrow points IN at source, PMOS points OUT) */}
+      <Wire path={`M ${channelBarX} ${cy} L ${cx + 4} ${cy}`} />
+      {polarity === "nmos" ? (
+        <polygon
+          points={`${channelBarX + 1},${cy - arrowSize / 2 + 1} ${channelBarX + 1},${cy + arrowSize / 2 - 1} ${channelBarX + arrowSize},${cy}`}
+          fill={STROKE}
+        />
+      ) : (
+        <polygon
+          points={`${channelBarX + arrowSize},${cy - arrowSize / 2 + 1} ${channelBarX + arrowSize},${cy + arrowSize / 2 - 1} ${channelBarX + 1},${cy}`}
+          fill={STROKE}
+        />
+      )}
+      {label && (
+        <text
+          x={cx + 20}
+          y={cy + 4}
+          fontFamily="var(--font-mono)"
+          fontSize={10}
+          fill={LABEL_FILL}
+        >
+          {label}
+        </text>
+      )}
+    </g>
+  );
+}
+
 /* ── op-amp ────────────────────────────────────────────── */
 
 const OPAMP_W = 44;
