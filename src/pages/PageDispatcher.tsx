@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { BY_SLUG } from "@/data/corpus";
 import { HomePage } from "./HomePage";
 import { InventoryPage } from "./InventoryPage";
@@ -13,9 +14,25 @@ import {
   ToolPage,
 } from "./EntryPages";
 
+const MapPage = lazy(() => import("./map/MapPage").then((m) => ({ default: m.MapPage })));
+
+function MapFallback() {
+  return (
+    <div className="flex-1 grid place-items-center text-muted font-mono font-mono-features text-[12px]">
+      loading map…
+    </div>
+  );
+}
+
 export function PageDispatcher({ slug }: { slug: string }) {
   if (slug === "" || slug === "home") return <HomePage />;
   if (slug === "inventory") return <InventoryPage />;
+  if (slug === "map")
+    return (
+      <Suspense fallback={<MapFallback />}>
+        <MapPage />
+      </Suspense>
+    );
   const entry = BY_SLUG[slug];
   if (!entry) return <NotFoundPage slug={slug} />;
   switch (entry.type) {

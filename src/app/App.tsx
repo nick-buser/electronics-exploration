@@ -1,13 +1,17 @@
 import { useEffect, useState } from "react";
+import clsx from "clsx";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
 import { Palette } from "./Palette";
 import { useHashRoute } from "./hash-route";
 import { PageDispatcher } from "@/pages/PageDispatcher";
 
+const FULL_BLEED_ROUTES = new Set(["map"]);
+
 export function App() {
   const slug = useHashRoute();
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const isFullBleed = FULL_BLEED_ROUTES.has(slug);
 
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -37,7 +41,14 @@ export function App() {
       <Sidebar slug={slug} onOpenPalette={() => setPaletteOpen(true)} />
       <div className="flex flex-col min-w-0">
         <Topbar slug={slug} onOpenPalette={() => setPaletteOpen(true)} />
-        <main className="px-12 py-14 max-w-[920px] w-full mx-auto">
+        <main
+          className={clsx(
+            isFullBleed
+              ? "w-full flex flex-col"
+              : "px-12 py-14 max-w-[920px] w-full mx-auto",
+          )}
+          style={isFullBleed ? { height: "calc(100vh - 3rem)" } : undefined}
+        >
           <PageDispatcher slug={slug} />
         </main>
       </div>
