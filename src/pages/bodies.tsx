@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Callout, Compare, ImageSlot, SpecTable } from "./elements";
 import { CodeBlock } from "@/components/code/CodeBlock";
+import { RcPwmDemo } from "@/circuits/RcPwmDemo";
 import { DemoPWM } from "@/demos/DemoPWM";
 import { DemoBus } from "@/demos/DemoBus";
 import { DemoPID } from "@/demos/DemoPID";
@@ -217,6 +218,14 @@ void loop() {
           <strong>Audio</strong> — class-D amplifiers PWM at 250kHz+ and rely on the speaker (and your ear) to low-pass-filter.
         </li>
       </ul>
+      <h2>Watch the load integrate</h2>
+      <p>
+        Average voltage is a real, measurable thing — the load just has to be slow enough to see it. The circuit below is a
+        live simulation: a PWM source drives a series resistor into a capacitor, exactly the low-pass filter a class-D
+        amplifier or a slow DAC relies on. Push R or C up so R·C ≫ the PWM period and the capacitor's voltage flattens onto
+        the duty-cycle average. Drop them and you see the raw square wave bleed through.
+      </p>
+      <RcPwmDemo />
       <h2>Where it breaks</h2>
       <Callout kind="warn">
         Cheap continuous-rotation servos take PWM as <em>position</em> commands, not duty cycle. Drive them at 50Hz with 1–2ms
