@@ -245,6 +245,48 @@ export function VSource({ a, b, label, value }: { a: Pt; b: Pt; label?: string; 
   );
 }
 
+/** Diode — triangle (anode side) pointing toward the cathode bar. */
+export function Diode({ a, b, label, value }: { a: Pt; b: Pt; label?: string; value?: string }) {
+  const len = dist(a, b);
+  const mid = midpoint(a, b);
+  const ang = angle(a, b);
+  const TRI_LEN = 12;
+  const TRI_W = 10;
+  const BAR_W = 10;
+  const cos = Math.cos((ang * Math.PI) / 180);
+  const sin = Math.sin((ang * Math.PI) / 180);
+  const leadLen = Math.max(0, (len - TRI_LEN) / 2);
+  const leadAxEnd: Pt = [a[0] + cos * leadLen, a[1] + sin * leadLen];
+  const leadBxStart: Pt = [b[0] - cos * leadLen, b[1] - sin * leadLen];
+  return (
+    <g>
+      <Wire path={`M ${a[0]} ${a[1]} L ${leadAxEnd[0]} ${leadAxEnd[1]}`} />
+      <Wire path={`M ${leadBxStart[0]} ${leadBxStart[1]} L ${b[0]} ${b[1]}`} />
+      <g transform={`translate(${mid[0]} ${mid[1]}) rotate(${ang})`}>
+        {/* Triangle pointing right (a is the anode on the left, b the cathode on the right). */}
+        <polygon
+          points={`-${TRI_LEN / 2},-${TRI_W / 2} -${TRI_LEN / 2},${TRI_W / 2} ${TRI_LEN / 2},0`}
+          fill={STROKE}
+          stroke={STROKE}
+          strokeWidth={STROKE_W}
+          strokeLinejoin="round"
+        />
+        {/* Cathode bar at the tip */}
+        <line
+          x1={TRI_LEN / 2}
+          y1={-BAR_W / 2}
+          x2={TRI_LEN / 2}
+          y2={BAR_W / 2}
+          stroke={STROKE}
+          strokeWidth={STROKE_W}
+          strokeLinecap="round"
+        />
+      </g>
+      <PartLabel pos={mid} label={label} value={value} side={Math.abs(ang) < 45 ? "above" : "left"} />
+    </g>
+  );
+}
+
 /* ── op-amp ────────────────────────────────────────────── */
 
 const OPAMP_W = 44;
