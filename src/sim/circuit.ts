@@ -31,7 +31,11 @@ export type Element =
   | { kind: "R"; id: string; a: string; b: string; value: number }
   | { kind: "C"; id: string; a: string; b: string; value: number; ic?: number }
   | { kind: "L"; id: string; a: string; b: string; value: number; ic?: number }
-  | { kind: "V"; id: string; a: string; b: string; wave: Wave };
+  | { kind: "V"; id: string; a: string; b: string; wave: Wave }
+  /** Ideal op-amp: V(vplus) - V(vminus) = 0, output sources whatever current
+   *  is needed to satisfy that constraint. Requires negative feedback in the
+   *  surrounding circuit or the MNA system is singular. */
+  | { kind: "OP"; id: string; vplus: string; vminus: string; vout: string };
 
 export interface Circuit {
   elements: Element[];
@@ -48,13 +52,16 @@ export interface NodeMap {
 
 export const GROUND = "gnd";
 
+/** Returns every node name referenced by an element. */
+export function elementNodes(e: Element): string[] {
+  if (e.kind === "OP") return [e.vplus, e.vminus, e.vout];
+  return [e.a, e.b];
+}
+
 /** Builds a stable name→index map for a circuit (ground is always 0). */
 export function buildNodeMap(c: Circuit): NodeMap {
   const seen = new Set<string>([GROUND]);
-  for (const e of c.elements) {
-    seen.add(e.a);
-    seen.add(e.b);
-  }
+  for (const e of c.elements) for (const n of elementNodes(e)) seen.add(n);
   if (c.nodes) for (const n of c.nodes) seen.add(n);
 
   const names = [GROUND, ...[...seen].filter((n) => n !== GROUND).sort()];

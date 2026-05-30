@@ -57,9 +57,11 @@ export function solveAc(
   const nodes = buildNodeMap(circuit);
   const omega = 2 * Math.PI * frequency;
   const sources: Element[] = circuit.elements.filter((e) => e.kind === "V");
+  const opamps: Element[] = circuit.elements.filter((e) => e.kind === "OP");
   const nSrc = sources.length;
+  const nOp = opamps.length;
   const internalN = nodes.names.length - 1;
-  const dim = internalN + nSrc;
+  const dim = internalN + nSrc + nOp;
 
   const A = zerosC(dim);
   const z = new Array<Complex>(dim).fill(ZERO).map(() => ({ ...ZERO }));
@@ -94,6 +96,18 @@ export function solveAc(
       const im = phasor.mag * Math.sin(phasor.phase ?? 0);
       z[row] = cx(re, im);
     }
+  });
+
+  // Ideal op-amp: same stamp as transient, just with complex 1s.
+  opamps.forEach((e, k) => {
+    if (e.kind !== "OP") return;
+    const row = internalN + nSrc + k;
+    const iVout = nodes.index.get(e.vout) ?? 0;
+    const iVp = nodes.index.get(e.vplus) ?? 0;
+    const iVm = nodes.index.get(e.vminus) ?? 0;
+    if (iVout > 0) A[iVout - 1][row] = add(A[iVout - 1][row], cx(1));
+    if (iVp > 0) A[row][iVp - 1] = add(A[row][iVp - 1], cx(1));
+    if (iVm > 0) A[row][iVm - 1] = add(A[row][iVm - 1], cx(-1));
   });
 
   const x = solveComplex(A, z);

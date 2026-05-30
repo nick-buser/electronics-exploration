@@ -30,6 +30,11 @@ export interface StepResult {
   /** Current through each inductor at this step, indexed by element id
    *  (positive = a → b internally). */
   il: Record<string, number>;
+  /** Current at each op-amp's output pin, indexed by element id. Follows
+   *  the V-source convention: positive = current flowing INTO the output
+   *  externally (op-amp sinking). An op-amp sourcing current to a load
+   *  therefore reports a negative value. */
+  iop: Record<string, number>;
   /** Time of this sample. */
   t: number;
 }
@@ -66,9 +71,11 @@ export function solveStep(
 
   const sources: Element[] = circuit.elements.filter((e) => e.kind === "V");
   const inductors: Element[] = circuit.elements.filter((e) => e.kind === "L");
+  const opamps: Element[] = circuit.elements.filter((e) => e.kind === "OP");
   const nSrc = sources.length;
   const nInd = inductors.length;
-  const dim = internalN + nSrc + nInd;
+  const nOp = opamps.length;
+  const dim = internalN + nSrc + nInd + nOp;
 
   const A = zeros(dim, dim);
   const z = new Array<number>(dim).fill(0);
@@ -137,6 +144,24 @@ export function solveStep(
     }
   });
 
+  // Stamp ideal op-amps. Adds:
+  //   • a branch-current unknown I_op (the current the output pin sources)
+  //   • the constitutive equation V(vplus) - V(vminus) = 0
+  // I_op contributes +1 to KCL at V_out (current flows out of the op-amp
+  // into the rest of the circuit at the vout node). If the surrounding
+  // network has no negative feedback, the system is singular.
+  opamps.forEach((e, k) => {
+    if (e.kind !== "OP") return;
+    const row = internalN + nSrc + nInd + k;
+    const iVout = state.nodes.index.get(e.vout) ?? 0;
+    const iVp = state.nodes.index.get(e.vplus) ?? 0;
+    const iVm = state.nodes.index.get(e.vminus) ?? 0;
+    if (iVout > 0) A[iVout - 1][row] += 1;
+    if (iVp > 0) A[row][iVp - 1] += 1;
+    if (iVm > 0) A[row][iVm - 1] += -1;
+    // z[row] stays 0 (V+ = V-)
+  });
+
   const x = solveLinear(A, z);
   if (!x) throw new Error("solveStep: singular MNA system at t=" + t);
 
@@ -157,8 +182,12 @@ export function solveStep(
   inductors.forEach((e, k) => {
     il[e.id] = x[internalN + nSrc + k];
   });
+  const iop: Record<string, number> = {};
+  opamps.forEach((e, k) => {
+    iop[e.id] = x[internalN + nSrc + nInd + k];
+  });
 
-  return { v, i, vc, il, t };
+  return { v, i, vc, il, iop, t };
 }
 
 /** Advance state: copy this step's cap voltages and inductor currents forward. */
