@@ -142,6 +142,82 @@ describe("MNA — op-amp configurations", () => {
   });
 });
 
+describe("MNA — diodes (Newton iteration)", () => {
+  it("forward bias: V_D + I·R = V_src and I matches the Shockley equation", () => {
+    // 5V source through 1kΩ into a 1N4148-ish diode to ground. Expected
+    // operating point: V_D ≈ 0.68 V, I ≈ 4.3 mA.
+    const c: Circuit = {
+      elements: [
+        { kind: "V", id: "vs", a: "vin", b: "gnd", wave: { kind: "dc", value: 5 } },
+        { kind: "R", id: "r", a: "vin", b: "anode", value: 1000 },
+        { kind: "D", id: "d1", a: "anode", b: "gnd" },
+      ],
+    };
+    const r = dcOperatingPoint(c);
+    const Is = 4e-9;
+    const Vt = 0.025852;
+    const N = 1.906;
+    const vd = r.vd.d1;
+    // V_D in the right ballpark for a small-signal Si diode under modest forward bias
+    expect(vd).toBeGreaterThan(0.6);
+    expect(vd).toBeLessThan(0.8);
+    // Self-consistency: I through R must equal I through the diode
+    const iR = (5 - r.v.anode) / 1000;
+    const iD = Is * (Math.exp(vd / (N * Vt)) - 1);
+    expect(Math.abs(iR - iD)).toBeLessThan(1e-6);
+    // And it matches the value the solver reported
+    expect(r.id.d1).toBeCloseTo(iD, 9);
+  });
+
+  it("reverse bias: I ≈ -Is (saturation current)", () => {
+    // Anode at ground, cathode forced to +2V → V_D = -2V (reverse).
+    const c: Circuit = {
+      elements: [
+        { kind: "V", id: "vs", a: "cathode", b: "gnd", wave: { kind: "dc", value: 2 } },
+        { kind: "D", id: "d1", a: "gnd", b: "cathode" },
+      ],
+    };
+    const r = dcOperatingPoint(c);
+    expect(r.vd.d1).toBeCloseTo(-2, 6);
+    // Reverse leakage is just -Is (a few nanoamps for the 1N4148-ish default)
+    expect(r.id.d1).toBeGreaterThan(-1e-8);
+    expect(r.id.d1).toBeLessThan(0);
+  });
+
+  it("half-wave rectifier with smoothing cap: vout follows positive peaks", () => {
+    // 5V/60Hz sine → diode → RC load. The cap charges through the diode on
+    // each positive peak and slowly droops via the load between peaks.
+    const c: Circuit = {
+      elements: [
+        {
+          kind: "V",
+          id: "vs",
+          a: "vin",
+          b: "gnd",
+          wave: { kind: "sine", offset: 0, amplitude: 5, frequency: 60 },
+        },
+        { kind: "D", id: "d1", a: "vin", b: "vout" },
+        { kind: "R", id: "rl", a: "vout", b: "gnd", value: 10000 },
+        { kind: "C", id: "cs", a: "vout", b: "gnd", value: 10e-6 },
+      ],
+    };
+    // 3 cycles at 60Hz, 0.1ms steps
+    const samples = runTransient(c, { duration: 50e-3, dt: 1e-4 });
+    const lastCycle = samples.filter((s) => s.t > 2 * (1 / 60));
+    const vouts = lastCycle.map((s) => s.v.vout);
+    const peak = Math.max(...vouts);
+    const trough = Math.min(...vouts);
+    // After settling, vout sits near 5V minus a diode drop. With a 10µF cap
+    // into 10kΩ load (τ = 100ms) and ~16ms between peaks, the trough is a
+    // fraction of a volt below the peak.
+    expect(peak).toBeGreaterThan(3.8);
+    expect(peak).toBeLessThan(4.5);
+    expect(trough).toBeGreaterThan(2.8);
+    // Output is essentially always positive (the cap doesn't discharge below 0)
+    expect(trough).toBeGreaterThan(0);
+  });
+});
+
 describe("MNA transient — LC tank", () => {
   it("trades energy between a pre-charged C and an L", () => {
     // 1µF cap charged to 5V resonating into 1mH inductor through a

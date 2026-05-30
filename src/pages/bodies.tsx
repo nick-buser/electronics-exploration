@@ -5,6 +5,7 @@ import { RcPwmDemo } from "@/circuits/RcPwmDemo";
 import { DecouplingZDemo } from "@/circuits/DecouplingZDemo";
 import { NonInvertingAmpDemo } from "@/circuits/NonInvertingAmpDemo";
 import { ActiveLowPassDemo } from "@/circuits/ActiveLowPassDemo";
+import { RectifierDemo } from "@/circuits/RectifierDemo";
 import { DemoPWM } from "@/demos/DemoPWM";
 import { DemoBus } from "@/demos/DemoBus";
 import { DemoPID } from "@/demos/DemoPID";
@@ -762,6 +763,66 @@ void loop() {
           Bipolar 555s draw nasty supply transients when output switches — decouple V<sub>cc</sub> with 100nF + 10µF
         </li>
         <li>Use the CMOS variant (TLC555 / LMC555) for low current and battery work</li>
+      </ul>
+    </>
+  ),
+  "c-1n4148": () => (
+    <>
+      <h2>What it is</h2>
+      <p>
+        The default small-signal switching diode you'll reach for nine times out of ten. A pn junction in a tiny glass DO-35
+        package — <strong>4 ns reverse-recovery</strong>, <strong>~700 mV forward drop</strong> at 10 mA, <strong>100 V</strong>{" "}
+        reverse standoff, and ~150 mA continuous forward current. Fast enough for logic-level signal steering, cheap enough that
+        a strip of a hundred costs about a coffee. The black band on the body marks the cathode.
+      </p>
+      <h2>The model</h2>
+      <p>
+        Every analog simulator uses the Shockley equation as its starting point:
+      </p>
+      <Callout label="// math">
+        I<sub>D</sub> = I<sub>S</sub> · (e<sup>V<sub>D</sub> / (N · V<sub>T</sub>)</sup> − 1)
+      </Callout>
+      <p>
+        I<sub>S</sub> is the reverse saturation current (~4 nA for a 1N4148), V<sub>T</sub> = kT/q ≈ 25.85 mV at room
+        temperature, and N is the emission coefficient (~1.9 for this part). At V<sub>D</sub> ≪ 0, I<sub>D</sub> ≈ −I
+        <sub>S</sub> — the reverse leakage you'd measure with a sensitive ammeter. At V<sub>D</sub> ≳ 0.6 V the exponential
+        takes over, the diode "turns on", and small changes in V<sub>D</sub> swing the current by orders of magnitude. There is
+        no V<sub>D</sub> threshold in the equation — the "0.7 V drop" is just a rule of thumb for typical small-signal currents.
+      </p>
+      <h2>Why this simulator iterates</h2>
+      <p>
+        That exponential is the first nonlinear thing in the simulator. Every other element (R, L, C, V, op-amp) is linear in
+        the node voltages, so one matrix solve gives the operating point. The diode breaks that: the unknown V<sub>D</sub>
+        appears inside an exponential, so we replace it with its tangent line at a current guess and solve. Then we update the
+        guess from the result and re-solve. Newton-Raphson, applied per-element via companion models. With SPICE-style step
+        limiting on V<sub>D</sub> to keep the exponential from overflowing on an over-eager iteration, every realistic circuit
+        converges in single-digit iterations.
+      </p>
+      <h2>Half-wave rectifier with smoothing</h2>
+      <p>
+        The canonical use: turn AC into approximate DC. Vin swings positive → diode conducts → cap charges to (peak − V
+        <sub>D</sub>). Vin swings back → diode blocks → cap holds Vout up while the load drains it. Crank R · C up relative to
+        the input period and the ripple shrinks; turn it down and the cap can't keep up.
+      </p>
+      <RectifierDemo />
+      <h2>Gotchas</h2>
+      <ul>
+        <li>
+          <strong>Reverse-recovery</strong> — the 4 ns spec matters when you're switching at &gt;100 kHz. Below that the diode
+          looks ideal; above it, you start seeing brief reverse-current spikes when the diode tries to turn off.
+        </li>
+        <li>
+          <strong>Temperature shift</strong> — V<sub>D</sub> drops by roughly 2 mV/°C at constant current. A hot junction looks
+          like a lower drop, which is the basis of using one as a temperature sensor.
+        </li>
+        <li>
+          <strong>Drop scales weakly with current</strong> — V<sub>D</sub> goes up about 60 mV per decade of forward current. So
+          a 1N4148 at 10 mA reads ~700 mV; at 100 µA it's closer to 600 mV.
+        </li>
+        <li>
+          <strong>For rectifying mains</strong>, reach for a 1N4007 (1 A, 1 kV) or a Schottky like the SS14 (low V<sub>D</sub>,
+          fast). The 1N4148 is for signals, not power.
+        </li>
       </ul>
     </>
   ),

@@ -35,7 +35,21 @@ export type Element =
   /** Ideal op-amp: V(vplus) - V(vminus) = 0, output sources whatever current
    *  is needed to satisfy that constraint. Requires negative feedback in the
    *  surrounding circuit or the MNA system is singular. */
-  | { kind: "OP"; id: string; vplus: string; vminus: string; vout: string };
+  | { kind: "OP"; id: string; vplus: string; vminus: string; vout: string }
+  /** Shockley diode. Anode = a, cathode = b. Forward current flows a → b.
+   *  I_D = Is · (exp(V_D / (N·Vt)) − 1). All three model params default to a
+   *  1N4148-ish profile so most circuits can omit them. `ic` seeds the
+   *  Newton iterate at t=0; transient analysis tracks V_D across steps. */
+  | {
+      kind: "D";
+      id: string;
+      a: string;
+      b: string;
+      Is?: number;
+      Vt?: number;
+      N?: number;
+      ic?: number;
+    };
 
 export interface Circuit {
   elements: Element[];

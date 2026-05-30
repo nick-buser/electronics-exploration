@@ -54,6 +54,7 @@ export const COMPONENTS: Component[] = [
   { type: "component", slug: "c-drv8323", title: "DRV8323", domain: "ee", deck: "3-phase smart gate driver. The chip behind credible field-oriented BLDC control." },
   { type: "component", slug: "c-ads1299", title: "ADS1299", domain: "bio", deck: "8-channel 24-bit Σ-Δ ADC built for EEG. Low-noise, high-impedance, the heart of OpenBCI." },
   { type: "component", slug: "c-ina219", title: "INA219", domain: "ee", deck: "I²C current/voltage shunt monitor. The cheap way to see what your circuit is actually drawing." },
+  { type: "component", slug: "c-1n4148", title: "1N4148", domain: "ee", deck: "The default small-signal switching diode. ~4 ns recovery, ~700 mV forward drop, in every parts bin worth having." },
 ];
 
 export const TOOLS: Tool[] = [
