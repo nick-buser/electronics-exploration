@@ -76,6 +76,7 @@ export const PRINCIPLES: Principle[] = [
   { type: "principle", slug: "pr-kinematics", title: "Forward & inverse kinematics", domain: "robotics", deck: "Joint angles to tool position, and back. The arm's coordinate-frame math." },
   { type: "principle", slug: "pr-slam", title: "SLAM", domain: "robotics", deck: "Simultaneous localization and mapping. Two unknowns, solved together." },
   { type: "principle", slug: "pr-fft", title: "FFT & spectra", domain: "bio", deck: "Time → frequency. Where biosignal artifacts and band powers become legible." },
+  { type: "principle", slug: "pr-opamp", title: "Op-amp", domain: "ee", deck: "Near-ideal feedback amplifier. Two resistors set the gain; the silicon takes care of everything else." },
 ];
 
 export const COMPARISONS: Comparison[] = [

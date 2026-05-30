@@ -3,6 +3,8 @@ import { Callout, Compare, ImageSlot, SpecTable } from "./elements";
 import { CodeBlock } from "@/components/code/CodeBlock";
 import { RcPwmDemo } from "@/circuits/RcPwmDemo";
 import { DecouplingZDemo } from "@/circuits/DecouplingZDemo";
+import { NonInvertingAmpDemo } from "@/circuits/NonInvertingAmpDemo";
+import { ActiveLowPassDemo } from "@/circuits/ActiveLowPassDemo";
 import { DemoPWM } from "@/demos/DemoPWM";
 import { DemoBus } from "@/demos/DemoBus";
 import { DemoPID } from "@/demos/DemoPID";
@@ -322,6 +324,68 @@ void loop() {
       <Callout label="// rule of thumb">
         If you only remember one number: 100 nF X7R, 0402 or 0603 package, as close as the layout will physically allow.
       </Callout>
+    </>
+  ),
+  "pr-opamp": () => (
+    <>
+      <h2>The trick</h2>
+      <p>
+        Inside the package there's a differential pair, a current mirror, a couple of stages of gain, and an output driver —
+        maybe twenty or thirty transistors carefully biased so that the open-loop gain from the difference between the two
+        inputs to the output is enormous (10<sup>5</sup>–10<sup>7</sup>). That gain is too large to use directly. The op-amp's
+        whole reason for existing is that <em>you don't have to</em>: wrap a feedback path from the output back to the
+        inverting input and the giant gain disappears, replaced by an exact ratio of the resistors you chose. The transistors
+        do whatever they must to keep V<sub>+</sub> = V<sub>−</sub>; you just write down what that gives you at the output.
+      </p>
+      <Callout label="// the golden rules">
+        For any op-amp circuit with negative feedback: <strong>V<sub>+</sub> = V<sub>−</sub></strong> and{" "}
+        <strong>I<sub>+</sub> = I<sub>−</sub> = 0</strong>. Almost every result on this page falls straight out of those two
+        sentences.
+      </Callout>
+      <h2>Non-inverting amplifier</h2>
+      <p>
+        Feed the signal to the <strong>+</strong> input. From the <strong>−</strong> input, run a resistor R<sub>g</sub> to
+        ground and another resistor R<sub>f</sub> back from V<sub>out</sub>. The two form a divider from V<sub>out</sub> to
+        ground; the op-amp drives V<sub>out</sub> until the divider's midpoint matches V<sub>in</sub>. That fixes the gain at
+        a pure resistor ratio, free of any device parameter:
+      </p>
+      <Callout label="// math">
+        V<sub>out</sub> / V<sub>in</sub> = 1 + R<sub>f</sub> / R<sub>g</sub>
+      </Callout>
+      <NonInvertingAmpDemo />
+      <h2>Active first-order low-pass</h2>
+      <p>
+        Switch to the inverting topology — signal in through R<sub>in</sub> to the <strong>−</strong> input, ground on the{" "}
+        <strong>+</strong> input — and put a capacitor across the feedback resistor. At DC the cap is open and you get the
+        plain inverting gain −R<sub>f</sub> / R<sub>in</sub>. As frequency rises the cap shunts the feedback path, dropping the
+        gain at −20 dB/decade above the corner where the cap's impedance equals R<sub>f</sub>:
+      </p>
+      <Callout label="// math">
+        H(s) = −R<sub>f</sub> / (R<sub>in</sub> · (1 + s·R<sub>f</sub>·C<sub>f</sub>)) &nbsp; · &nbsp; f<sub>c</sub> = 1 /
+        (2π·R<sub>f</sub>·C<sub>f</sub>)
+      </Callout>
+      <ActiveLowPassDemo />
+      <h2>Where the model breaks</h2>
+      <ul>
+        <li>
+          <strong>Real op-amps run out of gain</strong>. The textbook "infinite open-loop gain" is finite and falls at
+          20 dB/decade above its dominant pole; what you actually have is a <em>gain–bandwidth product</em>. Above
+          GBW / closed-loop-gain you stop being able to enforce V<sub>+</sub> = V<sub>−</sub>, and the gain rolls off
+          regardless of what your feedback network says it should be.
+        </li>
+        <li>
+          <strong>Output swing</strong>. The output can't go past the supply rails, and even "rail-to-rail" parts get within a
+          hundred millivolts or so. Pick a part whose supply rails comfortably bracket the output you need.
+        </li>
+        <li>
+          <strong>Slew rate</strong>. The output has a maximum dV/dt. Drive a fast edge through an op-amp slower than your
+          edge wants and you'll get a clean ramp where you wanted a step.
+        </li>
+        <li>
+          <strong>Input offset and bias current</strong>. The two inputs aren't perfectly matched and they don't draw exactly
+          zero current. For DC-coupled high-precision work, pick a chopper-stabilised or auto-zero part.
+        </li>
+      </ul>
     </>
   ),
   "pr-i2c": () => (

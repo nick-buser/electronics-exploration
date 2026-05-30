@@ -94,6 +94,54 @@ describe("MNA transient — RC charging", () => {
   });
 });
 
+describe("MNA — op-amp configurations", () => {
+  it("voltage follower: V_out = V_in", () => {
+    // Vin -> v+, v- shorted to vout (unity-gain buffer)
+    const c: Circuit = {
+      elements: [
+        { kind: "V", id: "vs", a: "vin", b: "gnd", wave: { kind: "dc", value: 2.7 } },
+        { kind: "OP", id: "u1", vplus: "vin", vminus: "vout", vout: "vout" },
+        { kind: "R", id: "rload", a: "vout", b: "gnd", value: 1000 },
+      ],
+    };
+    const r = dcOperatingPoint(c);
+    expect(r.v.vout).toBeCloseTo(2.7, 6);
+    // Op-amp sources 2.7 mA into the 1kΩ load; the V-source-style sign
+    // convention reports that as a negative branch current.
+    expect(r.iop.u1).toBeCloseTo(-2.7e-3, 6);
+  });
+
+  it("non-inverting amplifier: gain = 1 + R_f/R_g", () => {
+    // Vin = 100 mV, R_g = 1k, R_f = 9k → gain = 10 → Vout = 1.0V
+    const c: Circuit = {
+      elements: [
+        { kind: "V", id: "vs", a: "vin", b: "gnd", wave: { kind: "dc", value: 0.1 } },
+        { kind: "OP", id: "u1", vplus: "vin", vminus: "fb", vout: "vout" },
+        { kind: "R", id: "rg", a: "fb", b: "gnd", value: 1000 },
+        { kind: "R", id: "rf", a: "vout", b: "fb", value: 9000 },
+      ],
+    };
+    const r = dcOperatingPoint(c);
+    expect(r.v.vout).toBeCloseTo(1.0, 6);
+    expect(r.v.fb).toBeCloseTo(0.1, 6); // golden-rule constraint: V- = V+
+  });
+
+  it("inverting amplifier: gain = -R_f/R_in", () => {
+    // Vin = 1V, R_in = 1k, R_f = 5k → gain = -5 → Vout = -5V
+    const c: Circuit = {
+      elements: [
+        { kind: "V", id: "vs", a: "vin", b: "gnd", wave: { kind: "dc", value: 1 } },
+        { kind: "R", id: "rin", a: "vin", b: "summing", value: 1000 },
+        { kind: "OP", id: "u1", vplus: "gnd", vminus: "summing", vout: "vout" },
+        { kind: "R", id: "rf", a: "vout", b: "summing", value: 5000 },
+      ],
+    };
+    const r = dcOperatingPoint(c);
+    expect(r.v.vout).toBeCloseTo(-5.0, 6);
+    expect(r.v.summing).toBeCloseTo(0, 6); // virtual ground
+  });
+});
+
 describe("MNA transient — LC tank", () => {
   it("trades energy between a pre-charged C and an L", () => {
     // 1µF cap charged to 5V resonating into 1mH inductor through a

@@ -245,6 +245,87 @@ export function VSource({ a, b, label, value }: { a: Pt; b: Pt; label?: string; 
   );
 }
 
+/* ── op-amp ────────────────────────────────────────────── */
+
+const OPAMP_W = 44;
+const OPAMP_H = 36;
+const OPAMP_PIN_INSET = 8;
+
+export type OpAmpPins = { plus: Pt; minus: Pt; out: Pt };
+
+/** Pin positions for an op-amp centered at `at`. Pass `vPlusUp = false` to
+ *  put the `−` input on top (handy for inverting amps to keep the feedback
+ *  wires from crossing). */
+export function opAmpPins(at: Pt, vPlusUp = true): OpAmpPins {
+  const dy = OPAMP_H / 2 - OPAMP_PIN_INSET;
+  return {
+    plus: [at[0] - OPAMP_W / 2, at[1] + (vPlusUp ? -dy : +dy)],
+    minus: [at[0] - OPAMP_W / 2, at[1] + (vPlusUp ? +dy : -dy)],
+    out: [at[0] + OPAMP_W / 2, at[1]],
+  };
+}
+
+export function OpAmp({
+  at,
+  label,
+  vPlusUp = true,
+}: {
+  at: Pt;
+  label?: string;
+  vPlusUp?: boolean;
+}) {
+  const left = at[0] - OPAMP_W / 2;
+  const right = at[0] + OPAMP_W / 2;
+  const top = at[1] - OPAMP_H / 2;
+  const bot = at[1] + OPAMP_H / 2;
+  const plusY = at[1] + (vPlusUp ? -(OPAMP_H / 2 - OPAMP_PIN_INSET) : +(OPAMP_H / 2 - OPAMP_PIN_INSET));
+  const minusY = at[1] + (vPlusUp ? +(OPAMP_H / 2 - OPAMP_PIN_INSET) : -(OPAMP_H / 2 - OPAMP_PIN_INSET));
+  return (
+    <g>
+      <polygon
+        points={`${left},${top} ${left},${bot} ${right},${at[1]}`}
+        fill="var(--color-bg)"
+        stroke={STROKE}
+        strokeWidth={STROKE_W}
+      />
+      <text
+        x={left + 7}
+        y={plusY}
+        fontFamily="var(--font-mono)"
+        fontSize={10}
+        fill={STROKE}
+        textAnchor="middle"
+        dominantBaseline="middle"
+      >
+        +
+      </text>
+      <text
+        x={left + 7}
+        y={minusY}
+        fontFamily="var(--font-mono)"
+        fontSize={10}
+        fill={STROKE}
+        textAnchor="middle"
+        dominantBaseline="middle"
+      >
+        −
+      </text>
+      {label && (
+        <text
+          x={at[0] + 2}
+          y={bot + 12}
+          fontFamily="var(--font-mono)"
+          fontSize={9}
+          fill={VALUE_FILL}
+          textAnchor="middle"
+        >
+          {label}
+        </text>
+      )}
+    </g>
+  );
+}
+
 /** Ground symbol at a single point. */
 export function Ground({ at }: { at: Pt }) {
   const [x, y] = at;

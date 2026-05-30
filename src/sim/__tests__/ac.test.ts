@@ -44,6 +44,58 @@ describe("AC analysis — RC low-pass", () => {
   });
 });
 
+describe("AC analysis — op-amp configurations", () => {
+  it("ideal voltage follower has unity gain at any frequency", () => {
+    const c: Circuit = {
+      elements: [
+        { kind: "V", id: "vs", a: "vin", b: "gnd", wave: { kind: "dc", value: 0 } },
+        { kind: "OP", id: "u1", vplus: "vin", vminus: "vout", vout: "vout" },
+      ],
+    };
+    for (const f of [1, 1e3, 1e6, 1e9]) {
+      const p = solveAc(c, f, { vs: { mag: 1 } });
+      expect(abs(p.v.vout)).toBeCloseTo(1, 6);
+    }
+  });
+
+  it("active low-pass: DC gain = R_f/R_in and -3 dB at 1/(2π R_f C_f)", () => {
+    // Inverting topology: V_out / V_in = -R_f / (R_in (1 + jω R_f C_f))
+    // R_in = 1k, R_f = 10k, C_f = 1.59 nF → fc ≈ 10 kHz, |gain DC| = 10
+    const Rin = 1000;
+    const Rf = 10000;
+    const Cf = 1.59e-9;
+    const fc = 1 / (2 * Math.PI * Rf * Cf);
+    const c: Circuit = {
+      elements: [
+        { kind: "V", id: "vs", a: "vin", b: "gnd", wave: { kind: "dc", value: 0 } },
+        { kind: "R", id: "rin", a: "vin", b: "sum", value: Rin },
+        { kind: "OP", id: "u1", vplus: "gnd", vminus: "sum", vout: "vout" },
+        { kind: "R", id: "rf", a: "vout", b: "sum", value: Rf },
+        { kind: "C", id: "cf", a: "vout", b: "sum", value: Cf },
+      ],
+    };
+    // DC gain: at very low freq, |Vout| = Rf/Rin · 1V = 10
+    const lo = solveAc(c, 1, { vs: { mag: 1 } });
+    expect(abs(lo.v.vout)).toBeCloseTo(10, 1);
+
+    // -3 dB at fc: |gain| = 10/√2 ≈ 7.07
+    const pts = acSweep(c, { fStart: 1, fStop: 1e6, nPoints: 601, inputs: { vs: { mag: 1 } } });
+    const closest = pts.reduce((best, p) =>
+      Math.abs(Math.log10(p.f) - Math.log10(fc)) <
+      Math.abs(Math.log10(best.f) - Math.log10(fc))
+        ? p
+        : best,
+    );
+    const mag = abs(closest.v.vout);
+    expect(mag).toBeGreaterThan(7);
+    expect(mag).toBeLessThan(7.15);
+
+    // Past fc, rolloff. At f = 100·fc, gain ~ 10/100 = 0.1
+    const past = solveAc(c, 100 * fc, { vs: { mag: 1 } });
+    expect(abs(past.v.vout)).toBeLessThan(0.15);
+  });
+});
+
 describe("AC analysis — impedance of reactive elements", () => {
   it("|Z| of a 100 nF cap matches 1/(ωC)", () => {
     const C = 100e-9;
