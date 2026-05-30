@@ -19,7 +19,16 @@ import type {
   Project,
   Tool,
 } from "@/data/schemas";
-import { ArchetypeBodies, ComparisonBodies, DomainBodies, PrincipleBodies, ToolBodies } from "./bodies";
+import {
+  ArchetypeBodies,
+  ComparisonBodies,
+  ComponentBodies,
+  DomainBodies,
+  JournalBodies,
+  PrincipleBodies,
+  ProjectBodies,
+  ToolBodies,
+} from "./bodies";
 import { CardGrid, CardLink, PageHead, SpecTable, StatusPill } from "./elements";
 
 /* ── Domain ───────────────────────────────────────────── */
@@ -77,6 +86,7 @@ export function ArchetypePage({ entry }: { entry: Archetype }) {
 export function ProjectPage({ entry }: { entry: Project }) {
   const journal = JOURNAL.filter((j) => j.project === entry.slug);
   const archetype = entry.archetype ? BY_SLUG[entry.archetype] : null;
+  const Body = ProjectBodies[entry.slug];
   return (
     <div className="prose-bench">
       <PageHead entry={entry} />
@@ -108,10 +118,16 @@ export function ProjectPage({ entry }: { entry: Project }) {
         ]}
       />
 
-      <h2>Plan</h2>
-      <p>
-        This project page is a stub. Add narrative, build log entries, BOM, and learnings as they accumulate.
-      </p>
+      {Body ? (
+        <Body />
+      ) : (
+        <>
+          <h2>Plan</h2>
+          <p>
+            This project page is a stub. Add narrative, build log entries, BOM, and learnings as they accumulate.
+          </p>
+        </>
+      )}
 
       {journal.length > 0 && (
         <>
@@ -139,12 +155,17 @@ export function ProjectPage({ entry }: { entry: Project }) {
 
 /* ── Component ───────────────────────────────────────── */
 export function ComponentPage({ entry }: { entry: Component }) {
+  const Body = ComponentBodies[entry.slug];
   return (
     <div className="prose-bench">
       <PageHead entry={entry} />
-      <p>
-        Stub. Add the canonical info you keep forgetting: pinout, power, gotchas, datasheet link, projects you've used it in.
-      </p>
+      {Body ? (
+        <Body />
+      ) : (
+        <p>
+          Stub. Add the canonical info you keep forgetting: pinout, power, gotchas, datasheet link, projects you've used it in.
+        </p>
+      )}
     </div>
   );
 }
@@ -193,6 +214,7 @@ export function ComparisonPage({ entry }: { entry: Comparison }) {
 /* ── Journal ─────────────────────────────────────────── */
 export function JournalPage({ entry }: { entry: Journal }) {
   const project = entry.project ? BY_SLUG[entry.project] : null;
+  const Body = JournalBodies[entry.slug];
   return (
     <div className="prose-bench">
       <PageHead
@@ -211,7 +233,7 @@ export function JournalPage({ entry }: { entry: Journal }) {
       <div className="font-mono font-mono-features text-[11px] text-faint uppercase tracking-[0.08em] mb-3">
         {entry.date}
       </div>
-      <p>{entry.deck}</p>
+      {Body ? <Body /> : <p>{entry.deck}</p>}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Callout, Compare } from "./elements";
+import { Callout, Compare, ImageSlot, SpecTable } from "./elements";
 import { DemoPWM } from "@/demos/DemoPWM";
 import { DemoBus } from "@/demos/DemoBus";
 import { DemoPID } from "@/demos/DemoPID";
@@ -375,6 +375,191 @@ export const ToolBodies: Record<string, Body> = {
         <li>
           <strong>Coupling</strong> — DC reveals offset, AC reveals ripple. Learn which question you're asking.
         </li>
+      </ul>
+    </>
+  ),
+};
+
+export const ProjectBodies: Record<string, Body> = {
+  "p-so-arm100": () => (
+    <>
+      <h2>Goals</h2>
+      <ul>
+        <li>End-to-end teleop with a leader/follower pair</li>
+        <li>Record 20+ demonstrations of a single pick-and-place</li>
+        <li>Train one imitation-learning policy and run it on-device</li>
+        <li>Quantify joint backlash before and after a tighter mechanical revision</li>
+      </ul>
+
+      <h2>Bill of materials</h2>
+      <SpecTable
+        rows={[
+          ["Servos", "6× STS3215 (serial bus, position+torque feedback)"],
+          ["Frame", "PLA+, printed at 30% gyroid, 0.2mm layer"],
+          ["Controller", "Waveshare Servo Bus Controller + USB-C"],
+          ["Power", "12V 5A bench, regulated 6V rail for servos"],
+          ["Host", "MacBook → Python / LeRobot stack"],
+          ["Camera", "Logitech C920, fixed-mount, 30fps"],
+        ]}
+      />
+
+      <ImageSlot label="hero shot · arm on bench · drop your photo here" />
+
+      <h2>References</h2>
+      <ul>
+        <li>
+          <a href="#/the-arm">The Arm</a> archetype — pattern this is an instance of
+        </li>
+        <li>
+          <a href="#/pr-kinematics">Forward &amp; inverse kinematics</a>
+        </li>
+        <li>
+          <a href="#/cmp-motors">Motor comparison</a> — why bus servos here, not steppers
+        </li>
+      </ul>
+
+      <h2>Learnings (rolling)</h2>
+      <ul>
+        <li>Joint 3 has 1.4° of backlash from gear slop — needs printed retainers</li>
+        <li>Bus servo IDs collide if you don't program them one at a time before assembly</li>
+        <li>The wrist twist axis benefits from a tighter gear ratio; stock is overly fast and under-torqued for picking</li>
+      </ul>
+    </>
+  ),
+  "p-rp2040-breakout": () => (
+    <>
+      <h2>Plan</h2>
+      <p>
+        A minimal RP2040 breakout to learn KiCad → JLCPCB end-to-end without distractions. USB-C power and data, a 3.3V LDO,
+        status LED, broken-out GPIO on 0.1" headers. No fancy peripherals — the point is the workflow.
+      </p>
+
+      <h2>BOM (target ≤ $5 per board)</h2>
+      <SpecTable
+        rows={[
+          ["MCU", "RP2040 · QFN-56"],
+          ["Flash", "W25Q128JV · 16MB"],
+          ["USB", "USB-C 6-pin SMD, CC1/CC2 5.1kΩ pulldowns"],
+          ["Regulator", "NCP1117-3.3 (1A) · 10µF in + 10µF out"],
+          ["Crystal", "12MHz · 12pF caps"],
+          [
+            "Decoupling",
+            <>
+              10× 100nF · one per VDD pin (see <a href="#/pr-decoupling">decoupling</a>)
+            </>,
+          ],
+        ]}
+      />
+
+      <ImageSlot label="schematic · top-level KiCad capture" />
+      <ImageSlot label="3D render · before fab" />
+    </>
+  ),
+  "p-bench-psu": () => (
+    <>
+      <h2>What this is</h2>
+      <p>
+        A small kit of labelled, known-good power cables and adapters. The bench equivalent of writing a CI pipeline once so you
+        stop wasting time on environment bugs.
+      </p>
+
+      <h2>Inventory</h2>
+      <ul>
+        <li>2× banana-to-barrel, 5.5×2.1mm, with inline 2A fuses</li>
+        <li>2× banana-to-JST-XH, 1S and 3S</li>
+        <li>1× banana-to-USB-C breakout (5V regulated, fused)</li>
+        <li>4× alligator-to-banana, color-matched and labelled</li>
+        <li>Heat-shrunk strain reliefs everywhere</li>
+      </ul>
+
+      <Callout>
+        Every cable is labelled with a P-tape sleeve showing max V, max A, and a 2-digit ID. The ID maps to a row in a notebook
+        with "first-built" and "last-fault-checked" dates.
+      </Callout>
+    </>
+  ),
+};
+
+export const ComponentBodies: Record<string, Body> = {
+  "c-555": () => (
+    <>
+      <h2>What it is</h2>
+      <p>
+        A 1972 IC that just won't die: two comparators, an RS latch, a discharge transistor, and a divider chain that hands you
+        1/3 V<sub>cc</sub> and 2/3 V<sub>cc</sub> thresholds. From those primitives you build astable oscillators, monostable
+        pulses, PWM, Schmitt triggers, and an alarming amount of analog mischief.
+      </p>
+
+      <h2>Pinout</h2>
+      <SpecTable
+        rows={[
+          ["1 — GND", "Ground reference"],
+          ["2 — TRIG", "Trigger input; pulse low to start the cycle"],
+          ["3 — OUT", "Push-pull output, ~200mA sink/source"],
+          ["4 — RESET", "Active-low reset; tie high if unused"],
+          ["5 — CTRL", "Control voltage; bypass with 10nF to GND"],
+          [
+            "6 — THRES",
+            <>
+              Threshold; comparator vs 2/3 V<sub>cc</sub>
+            </>,
+          ],
+          ["7 — DISCH", "Open-collector discharge to GND"],
+          [
+            <>
+              8 — V<sub>cc</sub>
+            </>,
+            "4.5–16V (TLC555 down to 2V)",
+          ],
+        ]}
+      />
+
+      <h2>Astable period</h2>
+      <Callout label="// math">
+        T<sub>high</sub> = 0.693 · (R<sub>1</sub> + R<sub>2</sub>) · C &nbsp;&nbsp; T<sub>low</sub> = 0.693 · R<sub>2</sub> · C
+        &nbsp;&nbsp; Duty = (R<sub>1</sub> + R<sub>2</sub>) / (R<sub>1</sub> + 2R<sub>2</sub>)
+      </Callout>
+      <p>
+        Duty under 50% takes a diode trick (across R<sub>2</sub>). The math becomes instinct after about three astable
+        circuits.
+      </p>
+
+      <h2>Gotchas</h2>
+      <ul>
+        <li>Skip pin 5's bypass cap and your output jitters with supply noise</li>
+        <li>
+          Bipolar 555s draw nasty supply transients when output switches — decouple V<sub>cc</sub> with 100nF + 10µF
+        </li>
+        <li>Use the CMOS variant (TLC555 / LMC555) for low current and battery work</li>
+      </ul>
+    </>
+  ),
+};
+
+export const JournalBodies: Record<string, Body> = {
+  "j-2026-05-18": () => (
+    <>
+      <p>
+        Spent the afternoon on the third joint of the <a href="#/p-so-arm100">SO-ARM100</a>. Visible backlash — about 1.4° at
+        the wrist when I let the arm hang and gently rocked the end-effector. The gear retainer print at 20% grid is too
+        compliant.
+      </p>
+      <ImageSlot label="caliper measurement · joint 3 backlash" />
+      <h2>What I changed</h2>
+      <ul>
+        <li>Reprinted retainer at 30% gyroid, vertical orientation, 0.16mm layer</li>
+        <li>Tighter hole for the bearing (Ø 8.0 → 7.95mm) to reduce slop</li>
+        <li>Re-tightened M3 grub screw on the servo horn with thread locker</li>
+      </ul>
+      <h2>Result</h2>
+      <p>
+        Backlash dropped to roughly 0.4°. Acceptable for now; will revisit when imitation-learning policy starts demanding
+        repeatable end-effector position.
+      </p>
+      <h2>Next</h2>
+      <ul>
+        <li>Calibrate IK with the new joint stiffness</li>
+        <li>Record first 10 demonstrations of the pick task</li>
       </ul>
     </>
   ),
