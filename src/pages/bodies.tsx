@@ -4715,6 +4715,195 @@ void loop() {
       </ul>
     </>
   ),
+  "c-servo": () => (
+    <>
+      <h2>What it is</h2>
+      <p>
+        A <strong>hobby servo</strong> is the third option for moving a shaft — neither a brushed DC motor (no
+        position control) nor a stepper (open-loop and inefficient at hold), but a <strong>closed-loop position
+        actuator</strong> in one $2 package. Inside the plastic case: a small brushed DC motor, a 200:1 gear train,
+        a <strong>potentiometer</strong> sensing the output shaft angle, and a tiny analog or digital{" "}
+        <strong>control board</strong> that compares the commanded angle to the measured angle and runs the motor
+        to close the error. You send a pulse-width-modulated control signal; the servo holds the corresponding
+        angle indefinitely.
+      </p>
+      <p>
+        The default maker servo is the <strong>SG90</strong> — a 9 g blue/yellow plastic micro-servo with ~1.8
+        kg·cm of torque, 0–180° of motion, and a price tag under $2 on AliExpress. There are dozens of variants
+        (MG90S with metal gears, MG996R for higher torque, Dynamixel and Robotis for serial-controlled smart
+        servos), but the analog 50 Hz PWM control protocol is the lingua franca.
+      </p>
+      <h2>Datasheet at a glance — SG90</h2>
+      <SpecTable
+        rows={[
+          [<>V<sub>CC</sub></>, "4.8 – 6 V. Drives directly off a 4-cell NiMH or a 5 V rail"],
+          [<>I<sub>idle</sub></>, "~10 mA at rest, ~250 mA peak when moving against a load, ~700 mA when stalled"],
+          ["Operating range", "0° to 180° (some clones only 0–160°). 360° "continuous-rotation" variants exist but behave differently"],
+          ["Stall torque", "1.8 kg·cm @ 4.8 V, 2.2 kg·cm @ 6 V"],
+          ["Speed", "~0.1 s per 60° (= 600°/s) at no load"],
+          ["Mass", "9 g (SG90) / 13 g (MG90S, metal gears)"],
+          ["Control signal", "PWM, 50 Hz frame, 1–2 ms pulse width = 0–180°"],
+          ["Gears", "Nylon (SG90, cheap, strips under shock load) or metal (MG90S, MG996R, survives)"],
+        ]}
+      />
+      <h2>The PWM control protocol</h2>
+      <p>
+        Hobby servos use a near-universal protocol inherited from radio-control receivers. You send a pulse on the
+        signal wire <strong>every 20 ms</strong> (= 50 Hz frame rate) and the <strong>width of that pulse</strong>{" "}
+        — not the duty cycle, the absolute width — encodes the target angle:
+      </p>
+      <Callout label="// math">
+        1.0 ms pulse = 0° &nbsp;·&nbsp; 1.5 ms = 90° (centre) &nbsp;·&nbsp; 2.0 ms = 180°
+      </Callout>
+      <p>
+        The 20 ms repeat is loose — anywhere from 14 to 25 ms works on most servos — but the pulse width must be
+        precisely between 1.0 and 2.0 ms. Many servos accept a slightly wider 0.5 – 2.5 ms range to reach the
+        full mechanical limits. Outside the calibrated range the servo just clamps; below ~0.4 ms or above ~2.6 ms
+        on some clones, the controller gets confused and the motor twitches.
+      </p>
+      <Callout>
+        Note: the 50 Hz repeat means the control board only updates the target angle once every 20 ms — about 50
+        updates per second. Anything faster than that gets ignored. Smooth motion at &gt;50 Hz needs either
+        interpolation in firmware (smooth glide between target points) or a digital servo with a faster update
+        rate.
+      </Callout>
+      <h2>Inside the case</h2>
+      <p>
+        Pop the lid off an SG90 and you'll see four parts. A small <strong>brushed DC motor</strong> on the left
+        spins fast and weak. A <strong>gear train</strong> (usually 4 or 5 nylon gears in a planetary or
+        compound layout) trades 1000:1 speed for torque — the output spline turns slowly but holds significant
+        torque. The output shaft is mechanically coupled to a <strong>potentiometer</strong> on the underside —
+        the servo's only position sensor. And finally a tiny PCB carries an <strong>analog control IC</strong>{" "}
+        (the venerable 555-style M51660L on cheap SG90s, modern parts on better servos) that compares the
+        commanded pulse width to the pot voltage and drives the motor through a small H-bridge until the error is
+        near zero.
+      </p>
+      <p>
+        That's it. No microcontroller, no quadrature encoder, no current sensing. The pot is the position sensor,
+        the input pulse is the setpoint, the IC closes the loop. The simplicity is why an SG90 costs $2.
+      </p>
+      <h2>Wiring</h2>
+      <SpecTable
+        rows={[
+          ["Brown / black wire", "GND"],
+          ["Red wire", <>V<sub>CC</sub>: 4.8–6 V. <strong>Do NOT power off the MCU's 3.3 V or 5 V rail</strong> for anything but a single SG90 at no load</>],
+          ["Orange / yellow / white wire", "Signal: 50 Hz PWM from an MCU GPIO (3.3 V logic is fine, servo expects ≥ 3 V)"],
+        ]}
+      />
+      <p>
+        The most common newbie mistake: powering the servo from the Arduino's onboard 5 V regulator. The SG90's
+        250 mA running current + 700 mA stall transients exceed what a USB-fed Arduino's regulator can supply, and
+        the rail sags below the MCU's brownout threshold. The result is a board that reboots every time you move
+        the servo. Always feed servo power from a separate supply (or a beefy bench supply / battery), and tie the
+        grounds together.
+      </p>
+      <CodeBlock
+        language="cpp"
+        filename="servo_sweep.ino"
+        code={`#include <Servo.h>             // Arduino's built-in servo library — handles the 50 Hz pulse generation
+
+Servo myServo;
+const int SERVO_PIN = 9;
+
+void setup() {
+  myServo.attach(SERVO_PIN);   // start emitting 1.5 ms pulses
+  myServo.write(90);           // centre
+}
+
+void loop() {
+  for (int angle = 0; angle <= 180; angle++) {
+    myServo.write(angle);
+    delay(15);                 // ~50 Hz update rate, slow enough for servo to track
+  }
+  for (int angle = 180; angle >= 0; angle--) {
+    myServo.write(angle);
+    delay(15);
+  }
+}`}
+      />
+      <Callout label="// what's actually happening on the wire">
+        The Arduino Servo library uses Timer1 (or a hardware timer on AVR) to generate the 50 Hz frame. Each call
+        to <code>write(angle)</code> just updates the desired pulse width — the timer keeps emitting pulses at 50
+        Hz forever, asynchronously. The angle is mapped linearly: <code>angle ∈ [0, 180]</code> → pulse width{" "}
+        <code>∈ [1000, 2000] µs</code>. Library variants (ESP32Servo, Adafruit_PWMServoDriver) do the same with
+        different timer back-ends.
+      </Callout>
+      <h2>Continuous-rotation servos</h2>
+      <p>
+        Some servos labelled "360°" or "continuous" have had their internal feedback potentiometer disconnected
+        and replaced with a fixed voltage divider. The control loop now sees a constant "current angle" no
+        matter what the output does, so the IC reads any input pulse as an <strong>error</strong> and drives the
+        motor accordingly. Pulse width now encodes <em>speed</em>, not position:
+      </p>
+      <SpecTable
+        rows={[
+          ["1.0 ms pulse", "Full speed in one direction"],
+          ["1.5 ms pulse", "Stop (zero error)"],
+          ["2.0 ms pulse", "Full speed in the other direction"],
+        ]}
+      />
+      <p>
+        Useful for cheap drive wheels on small robots when you don't need position control. Don't try to mix
+        these with regular servos in the same library without configuring each one separately.
+      </p>
+      <h2>Driving many servos</h2>
+      <p>
+        For 1–8 servos, the Arduino Servo library (or ESP32Servo) drives them from individual GPIOs using one or
+        two hardware timers. Past that, you reach for the <strong>PCA9685</strong> — a 16-channel I²C PWM driver
+        used in every "robot arm" project. One PCA9685 on a single I²C bus controls 16 servos; daisy-chain a
+        second board (different I²C address) and you have 32. Adafruit's PCA9685 library handles the math.
+      </p>
+      <h2>Gotchas</h2>
+      <ul>
+        <li>
+          <strong>Don't power servos from the MCU's regulator.</strong> Already flagged but the most common reset-
+          loop trap on every Arduino project. Even one SG90 will brown out a USB-powered Uno if it stalls. Always
+          use a separate supply for the servo's V<sub>CC</sub>, with a common ground.
+        </li>
+        <li>
+          <strong>Add a bulk capacitor near the servo.</strong> 470 µF electrolytic + 100 nF ceramic across V
+          <sub>CC</sub> and GND, as close as possible to the servo connector. Servo current spikes are sharp and
+          short; the cap supplies them locally rather than dragging current through long power wires that drop
+          voltage and inject noise back into the supply.
+        </li>
+        <li>
+          <strong>Nylon gears strip.</strong> The SG90's plastic gears can't survive a physical shock — drop the
+          output arm against a hard stop and you'll feel the gears slip. Symptom: servo buzzes endlessly trying to
+          reach a position it can't actually move to. For projects that touch obstacles or use the servo as a
+          power lever, spend $1 more on the MG90S (metal gears).
+        </li>
+        <li>
+          <strong>Buzzing at idle.</strong> If the servo can't quite reach its target angle (because of mechanical
+          friction, gear backlash, or the IC's dead band being too small), it oscillates around it — the
+          characteristic SG90 buzz. Mitigation: send the servo to the angle, wait 500 ms, then call{" "}
+          <code>servo.detach()</code> in the library. That stops emitting pulses; the servo coasts to a
+          mechanically stable rest position. Won't work under load (the servo has no holding torque when not
+          powered).
+        </li>
+        <li>
+          <strong>Cheap SG90s have inconsistent zero-points.</strong> One SG90 might centre at 1.5 ms = 90°,
+          another at 1.45 ms or 1.55 ms. If your project needs accurate positioning, calibrate each individual
+          servo (find the actual pulse widths for 0° and 180° on each) and store the values.
+        </li>
+        <li>
+          <strong>50 Hz PWM is loud at higher current.</strong> Some MG996R-class servos buzz audibly at their
+          50 Hz frame rate even when not loaded. Higher-end digital servos (Dynamixel, Hitec HSB) use 250–333 Hz
+          internal control loops and are silent — but cost 10× the analog price.
+        </li>
+        <li>
+          <strong>Don't drive a servo past its mechanical limits.</strong> Some servos accept 0.5–2.5 ms pulse
+          widths but the gear stops won't let the output reach the corresponding angles. The motor pushes against
+          a hard mechanical stop and overheats the H-bridge IC; the servo dies after a few minutes. Stick to
+          1.0–2.0 ms unless you've verified the mechanics.
+        </li>
+        <li>
+          <strong>Long signal wires pick up noise.</strong> Servo signal lines longer than ~30 cm benefit from a
+          100 Ω series resistor near the MCU and a small cap to ground at the servo end. RC-style cars with 1 m
+          signal cables routinely deal with EMI; tabletop projects don't, until they do.
+        </li>
+      </ul>
+    </>
+  ),
 };
 
 export const JournalBodies: Record<string, Body> = {
