@@ -897,6 +897,419 @@ void loop() {
       </ul>
     </>
   ),
+  "c-esp32": () => (
+    <>
+      <h2>What it is</h2>
+      <p>
+        Espressif's 2016 follow-up to the ESP8266 and the chip that turned "add Wi-Fi to a thing" into a $3 problem. A dual-core
+        <strong> Xtensa LX6</strong> @ 240 MHz with 520 KB SRAM on-die, an integrated 2.4 GHz radio that talks both Wi-Fi
+        (b/g/n) and Bluetooth 4.2 (Classic + BLE), and a peripheral set that's wildly over-spec for the price. You almost
+        never see the bare ESP32-D0WDQ6 chip in QFN-48 — you reach for an{" "}
+        <strong>ESP-WROOM-32 module</strong> instead: chip + 40 MHz crystal + RF matching + 4 MB SPI flash + an FCC/CE-
+        certified shielded can on a 25.5 × 18 mm PCB. The whole module is what slots into your design, and it's what every
+        dev board (NodeMCU-32S, ESP32-DevKitC, DOIT ESP32) wraps in a USB-UART bridge.
+      </p>
+      <Callout>
+        For new designs in 2026 you'd probably reach for the <strong>ESP32-S3</strong> (USB-OTG, vector extensions, more
+        RAM) or the <strong>ESP32-C6</strong> (RISC-V, Wi-Fi 6, Zigbee/Thread). The original ESP32 is still the volume
+        leader in the field, though, and most "ESP32" tutorials online still describe it.
+      </Callout>
+      <h2>The family at a glance</h2>
+      <Compare
+        header={["", "CPU", "Wireless", "USB", "Notable"]}
+        rows={[
+          ["ESP32 (2016)", "2× Xtensa LX6 @ 240", "Wi-Fi b/g/n + BT 4.2", "no native", "The original. Cheap, everywhere"],
+          ["ESP32-S2 (2019)", "1× Xtensa LX7 @ 240", "Wi-Fi b/g/n only", "USB-OTG", "Single-core, no BT — cost-down for HID/UVC"],
+          ["ESP32-S3 (2021)", "2× Xtensa LX7 @ 240", "Wi-Fi b/g/n + BLE 5", "USB-OTG", "AI/vector ISA, more RAM. The current default"],
+          ["ESP32-C3 (2021)", "1× RISC-V @ 160", "Wi-Fi b/g/n + BLE 5", "USB-Serial-JTAG", "Sub-$1 RISC-V replacement for the 8266"],
+          ["ESP32-C6 (2023)", "1× RISC-V @ 160", "Wi-Fi 6 + BLE 5 + 802.15.4", "USB-Serial-JTAG", "Thread / Zigbee / Matter ready"],
+          ["ESP32-H2 (2023)", "1× RISC-V @ 96", "BLE 5 + 802.15.4 (no Wi-Fi)", "USB-Serial-JTAG", "Pure mesh/sensor node"],
+        ]}
+      />
+      <h2>Datasheet at a glance (ESP32-WROOM-32)</h2>
+      <SpecTable
+        rows={[
+          ["CPU", <>2× Xtensa LX6, up to 240 MHz, FPU on each core</>],
+          ["Memory", <>520 KB SRAM, 448 KB ROM, 4 MB SPI flash on the module (16 MB option)</>],
+          ["Wireless", <>Wi-Fi 802.11 b/g/n (2.4 GHz only) + BT 4.2 Classic + BLE</>],
+          ["GPIO", <>34 physical GPIOs, with extensive pin-mux via the GPIO matrix</>],
+          ["ADC", <>2× SAR ADCs, 12-bit, 18 channels total. ADC1 (8 ch) is the usable one</>],
+          ["DAC", <>2× 8-bit, on GPIO25 and GPIO26 — the only true analog out</>],
+          ["UART", <>3× hardware, with hardware flow control on 2 of them</>],
+          ["I²C", <>2× hardware, fully pin-muxable through the GPIO matrix</>],
+          ["SPI", <>4× (SPI0/1 are reserved for flash, HSPI/VSPI are general-purpose)</>],
+          ["PWM", <>16 channels via LEDC, plus 8 from MCPWM (built for motor drive)</>],
+          ["Other", <>I²S, RMT, SD/MMC, CAN/TWAI, capacitive touch (10 ch), Hall sensor</>],
+          [<>V<sub>DD</sub></>, <>2.3 – 3.6 V, typical 3.3 V; peak 700+ mA during Wi-Fi TX bursts</>],
+          ["Package", <>QFN-48 (6×6 mm) chip, or WROOM-32 module (25.5 × 18 mm)</>],
+        ]}
+      />
+      <h2>GPIO map and the strapping-pin trap</h2>
+      <p>
+        The ESP32 has 34 numbered GPIOs but you can't treat them as interchangeable. Some are <strong>input-only</strong>
+        (GPIO34, 35, 36, 39 — they have no output driver and no internal pull-up/down). Some are <strong>strapping pins</strong>
+        sampled at boot to decide flash voltage and boot mode (GPIO0, GPIO2, GPIO5, GPIO12, GPIO15) — drive them with the
+        wrong level at reset and the chip refuses to boot. GPIO6–11 are <strong>permanently wired to the SPI flash</strong>
+        on every WROOM-32 module; treat them as nonexistent or you'll brick the boot. Pins around the JTAG and external
+        crystal are similarly off-limits depending on configuration.
+      </p>
+      <SpecTable
+        rows={[
+          ["Safe-to-use", "GPIO 4, 13, 14, 16, 17, 18, 19, 21, 22, 23, 25, 26, 27, 32, 33"],
+          ["Input-only (no pull-up/down)", "GPIO 34, 35, 36, 39"],
+          [
+            "Strapping pins (be careful at boot)",
+            <>
+              <strong>GPIO0</strong> (must be HIGH to boot from flash), <strong>GPIO2</strong> (must be LOW or floating),
+              GPIO5 (HIGH), GPIO12 (LOW, sets flash V<sub>DD</sub>), GPIO15 (HIGH or boot logs flood UART0)
+            </>,
+          ],
+          ["Reserved (flash)", "GPIO 6, 7, 8, 9, 10, 11"],
+          [
+            <>
+              ADC1 (Wi-Fi safe)
+            </>,
+            "GPIO 32, 33, 34, 35, 36, 37, 38, 39",
+          ],
+          [
+            <>
+              ADC2 (blocked while Wi-Fi is up)
+            </>,
+            "GPIO 0, 2, 4, 12, 13, 14, 15, 25, 26, 27",
+          ],
+          ["DAC out", "GPIO25, GPIO26"],
+          ["Touch sensor", "GPIO 0, 2, 4, 12–15, 27, 32, 33"],
+        ]}
+      />
+      <Callout kind="warn" label="// the ADC2 trap">
+        The radio shares the ADC2 SAR with Wi-Fi calibration. The moment you call <code>WiFi.begin()</code>, ADC2 reads
+        return random garbage until you stop the radio. Default <strong>any analog input to an ADC1 pin</strong>{" "}
+        (32–39) and your sensor reads stay clean while the chip is online.
+      </Callout>
+      <h2>Power and the boot dance</h2>
+      <p>
+        Three things matter for power: <strong>3.3 V rail</strong>, <strong>EN pin</strong> (active-high reset, must come
+        up <em>after</em> the rail is stable), and <strong>GPIO0</strong> (HIGH = boot from flash, LOW at reset = enter
+        ROM bootloader). On a dev board the USB-UART bridge (CP2102 / CH340 / FT232) drives both EN and GPIO0 from its DTR
+        and RTS lines through the famous Espressif two-transistor reset circuit, so <code>esptool.py</code> can pulse the
+        chip into bootloader mode without you touching the board. On your own PCB you replicate the same two-NPN trick or
+        you add a "BOOT" tact switch and pull GPIO0 low while reset is pulsed.
+      </p>
+      <Callout label="// power budget">
+        Average current ≈ 80 mA (Wi-Fi connected, low traffic). Peak TX bursts can hit{" "}
+        <strong>300–700 mA for ~10 ms</strong>. A 100 nF + 10 µF decoupling pair at the module is the minimum; for battery
+        designs, a real LDO (or DC-DC) with ≥500 mA capability is mandatory or you'll get brownout resets the first time
+        the radio transmits.
+      </Callout>
+      <h2>Toolchains: pick one</h2>
+      <Compare
+        header={["", "What it is", "Use when"]}
+        rows={[
+          [
+            "Arduino IDE",
+            "Espressif's Arduino-ESP32 core wraps ESP-IDF behind setup() / loop()",
+            "Sketches, libraries you grabbed off GitHub, getting a sensor working in 20 minutes",
+          ],
+          [
+            "ESP-IDF",
+            "Espressif's first-party C/C++ framework. CMake, FreeRTOS, full peripheral API",
+            "Production firmware, OTA, custom partition layouts, anything past one source file",
+          ],
+          [
+            "PlatformIO",
+            "VSCode + CLI wrapper over Arduino or ESP-IDF, with reproducible builds and library lock files",
+            "Day-to-day work in a real editor; the toolchain Arduino people graduate into",
+          ],
+          [
+            "MicroPython / CircuitPython",
+            "Python runtime flashed onto the chip; you upload .py files via the REPL",
+            "Glue scripts, classrooms, fast prototyping. Pay ~30 KB of RAM and some perf",
+          ],
+        ]}
+      />
+      <p>
+        ESP-IDF is what every Arduino sketch ends up calling underneath, so reading IDF examples is the fastest way to
+        understand what your Arduino code is really doing. PlatformIO is the pragmatic default once a project has more
+        than one source file or needs to be checked into version control with pinned dependencies.
+      </p>
+      <h2>Flashing: <code>esptool.py</code> under the hood</h2>
+      <p>
+        Every toolchain ends at the same place: <code>esptool.py</code> talking to the ROM bootloader over UART0
+        (GPIO1=TX, GPIO3=RX). The bootloader auto-bauds — it'll happily accept anything from 9600 up to 921600 (and on
+        some setups 1.5 Mbaud), but{" "}
+        <strong>921600</strong> is the sweet spot for stability across USB-UART bridges.
+      </p>
+      <CodeBlock
+        language="text"
+        filename="flash.sh"
+        code={`# Detect the chip and dump its eFuse summary (no flashing)
+esptool.py --port /dev/ttyUSB0 chip_id
+esptool.py --port /dev/ttyUSB0 read_mac
+
+# Erase the whole flash — clears partition table, NVS, OTA slots
+esptool.py --port /dev/ttyUSB0 erase_flash
+
+# Flash a single binary at the application offset (0x10000 by default)
+esptool.py --chip esp32 --port /dev/ttyUSB0 --baud 921600 \\
+  write_flash -z 0x10000 build/firmware.bin
+
+# Full IDF-style flash: bootloader, partition table, and application
+esptool.py --chip esp32 --port /dev/ttyUSB0 --baud 921600 \\
+  write_flash -z \\
+    0x1000  build/bootloader/bootloader.bin \\
+    0x8000  build/partition_table/partition-table.bin \\
+    0x10000 build/firmware.bin
+
+# Monitor the serial output at 115200 (the app's UART0 default)
+miniterm.py /dev/ttyUSB0 115200`}
+      />
+      <Callout label="// auto-reset into bootloader">
+        Modern <code>esptool.py</code> uses the DTR/RTS lines to pulse EN low (reset) while holding GPIO0 low (boot mode).
+        If your USB-UART bridge doesn't expose both lines, or you're flashing a bare module, you'll need to short
+        GPIO0–GND, pulse EN to GND, then release GPIO0 — the manual version of what the dev board does for you.
+      </Callout>
+      <h2>Peripherals and their realistic ceilings</h2>
+      <SpecTable
+        rows={[
+          [
+            "UART",
+            <>
+              3× hardware. Default app rate is 115200; <strong>921600 is reliably the practical max</strong> over the
+              on-board USB-UART; 5 Mbaud is the theoretical chip limit on a direct level-shifted connection.
+            </>,
+          ],
+          [
+            "I²C",
+            <>
+              2× hardware. Speeds: <strong>100 kHz</strong> (standard), <strong>400 kHz</strong> (fast), up to{" "}
+              <strong>1 MHz</strong> (fast-mode-plus) if both devices and the pull-ups cooperate. Both buses are
+              pin-muxable via the GPIO matrix.
+            </>,
+          ],
+          [
+            "SPI",
+            <>
+              HSPI and VSPI are general-purpose, up to <strong>80 MHz</strong> on a direct-pin layout (40 MHz once you
+              route through the GPIO matrix). Use DMA for any transfer ≥ 64 bytes.
+            </>,
+          ],
+          [
+            "ADC",
+            <>
+              12-bit SAR. Effective resolution is closer to <strong>~10 bits</strong> after nonlinearity — the curve sags
+              at the rails, gets noisy near V<sub>DD</sub>. Calibrate with the eFuse Vref or oversample.
+            </>,
+          ],
+          [
+            "DAC",
+            <>
+              2× 8-bit (GPIO25/26). True analog out, but only 256 levels. Use the PDM / cosine generator if you need
+              audio.
+            </>,
+          ],
+          [
+            "LEDC (PWM)",
+            <>
+              16 channels (8 high-speed + 8 low-speed) sharing 4 timers. Resolution ↔ frequency tradeoff:{" "}
+              <strong>1 kHz @ 16-bit</strong>, <strong>10 kHz @ 13-bit</strong>, <strong>40 MHz @ 1-bit</strong>.
+            </>,
+          ],
+          [
+            "RMT",
+            <>
+              Built for IR remote codes but secretly the right tool for any custom waveform: WS2812 LEDs, 1-Wire, IR-NEC,
+              stepper pulse trains. 8 channels, each with its own pattern memory.
+            </>,
+          ],
+          [
+            "I²S",
+            <>
+              2 controllers, can be ganged for 24-bit stereo audio. Also the trick used to drive parallel LCD panels and
+              high-throughput WS2812 strings.
+            </>,
+          ],
+          [
+            "Wi-Fi",
+            <>
+              2.4 GHz only (no 5 GHz). STA, AP, and STA+AP modes; ESP-NOW for 250 µs connectionless peer-to-peer.
+              Realistic TCP throughput ~10–20 Mbps. See <a href="#/pr-i2c">pr-i2c</a> for the bus pattern and{" "}
+              <a href="#/pr-pwm">pr-pwm</a> for the LEDC math.
+            </>,
+          ],
+          [
+            "BLE",
+            <>
+              Bluetooth 4.2 (not 5). Peripheral, central, or both via the NimBLE stack in ESP-IDF. The original ESP32 has
+              no Coded PHY or extended advertising — for those, use the S3/C3.
+            </>,
+          ],
+        ]}
+      />
+      <h2>Hello world over UART, three ways</h2>
+      <p>
+        Same job, three toolchains. Open a terminal at 115200 8N1 to see the output.
+      </p>
+      <CodeBlock
+        language="cpp"
+        filename="hello.ino"
+        code={`// Arduino-ESP32 core
+void setup() {
+  Serial.begin(115200);     // UART0 on GPIO1/3, USB-bridged on dev boards
+  pinMode(2, OUTPUT);        // GPIO2 — onboard LED on most dev kits
+}
+
+void loop() {
+  Serial.printf("uptime: %lu ms\\n", millis());
+  digitalWrite(2, !digitalRead(2));
+  delay(500);
+}`}
+      />
+      <CodeBlock
+        language="c"
+        filename="main/hello_main.c"
+        code={`// ESP-IDF (same effect, FreeRTOS task model)
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "driver/gpio.h"
+#include "esp_log.h"
+
+static const char *TAG = "hello";
+
+void app_main(void) {
+    gpio_set_direction(GPIO_NUM_2, GPIO_MODE_OUTPUT);
+    int level = 0;
+    while (1) {
+        ESP_LOGI(TAG, "uptime: %lu ms", (unsigned long)(esp_log_timestamp()));
+        gpio_set_level(GPIO_NUM_2, level ^= 1);
+        vTaskDelay(pdMS_TO_TICKS(500));
+    }
+}`}
+      />
+      <CodeBlock
+        language="python"
+        filename="main.py"
+        code={`# MicroPython
+import time
+from machine import Pin
+
+led = Pin(2, Pin.OUT)
+t0 = time.ticks_ms()
+while True:
+    print("uptime:", time.ticks_diff(time.ticks_ms(), t0), "ms")
+    led.value(not led.value())
+    time.sleep_ms(500)`}
+      />
+      <p>
+        The Arduino version compiles down to the IDF version with extra glue; the IDF version is FreeRTOS-native and gives
+        you the scheduling control needed for radios and DMA. MicroPython runs in interpreted bytecode at maybe 2% the
+        speed but means you can iterate from the REPL with no flash cycle.
+      </p>
+      <h2>Wiring a sensor: the I²C pattern</h2>
+      <p>
+        Most ESP32 projects bottom out at "talk to an I²C sensor and ship the reading over Wi-Fi." The pattern is the
+        same on every board: SDA + SCL with 4.7 kΩ pull-ups to 3.3 V, sensor V<sub>DD</sub> tied to the 3V3 rail, common
+        ground, and any two free GPIOs picked through the GPIO matrix (the default convention is GPIO21=SDA, GPIO22=SCL,
+        but it's just a default — you can move them).
+      </p>
+      <CodeBlock
+        language="cpp"
+        filename="bme280_read.ino"
+        code={`#include <Wire.h>
+#include <Adafruit_BME280.h>
+
+Adafruit_BME280 bme;       // I²C address 0x76 or 0x77
+
+void setup() {
+  Serial.begin(115200);
+  Wire.begin(21, 22);        // SDA=21, SCL=22 — pick any two safe pins
+  Wire.setClock(400000);     // 400 kHz fast mode
+  if (!bme.begin(0x76)) {
+    Serial.println("BME280 not found at 0x76, trying 0x77");
+    bme.begin(0x77);
+  }
+}
+
+void loop() {
+  Serial.printf("T=%.2f C  P=%.1f hPa  RH=%.1f%%\\n",
+                bme.readTemperature(),
+                bme.readPressure() / 100.0,
+                bme.readHumidity());
+  delay(2000);
+}`}
+      />
+      <p>
+        For everything past two devices, switch to <code>setPins()</code>-style explicit mapping and don't rely on the
+        default pins — the Espressif convention has drifted across board revisions and a fresh board may not match. See{" "}
+        <a href="#/pr-i2c">pr-i2c</a> for how the bus actually clocks.
+      </p>
+      <h2>Wi-Fi in five lines, BLE in twenty</h2>
+      <CodeBlock
+        language="cpp"
+        filename="wifi_post.ino"
+        code={`#include <WiFi.h>
+#include <HTTPClient.h>
+
+void setup() {
+  Serial.begin(115200);
+  WiFi.begin("ssid", "password");
+  while (WiFi.status() != WL_CONNECTED) { delay(250); Serial.print("."); }
+  Serial.printf("\\nIP: %s\\n", WiFi.localIP().toString().c_str());
+
+  HTTPClient http;
+  http.begin("https://httpbin.org/post");
+  http.addHeader("Content-Type", "application/json");
+  int code = http.POST("{\\"hello\\": \\"world\\"}");
+  Serial.printf("HTTP %d: %s\\n", code, http.getString().c_str());
+}
+
+void loop() {}`}
+      />
+      <p>
+        Use <code>WiFi.setSleep(false)</code> for sustained low-latency throughput (the radio sleeps between AP beacons
+        by default — fine for sensor uploads, fatal for real-time control). For tightly-paired devices that don't need
+        an AP, use <strong>ESP-NOW</strong>: connectionless 250-byte packets between peers, ~1 ms RTT, no router.
+      </p>
+      <h2>Gotchas</h2>
+      <ul>
+        <li>
+          <strong>Brownout under Wi-Fi TX.</strong> The radio bursts pull 300–700 mA for ~10 ms. Underspec'd LDOs or
+          long thin USB cables sag the rail below 2.7 V and the brownout detector resets the chip. Symptom: works on
+          USB-3 port, dies on a 1 m white cable. Fix: a real 500 mA LDO + 10 µF tank cap at the module.
+        </li>
+        <li>
+          <strong>ADC2 vs Wi-Fi.</strong> Already flagged above, repeated here because every newcomer is bitten:
+          GPIOs on ADC2 (0/2/4/12–15/25–27) can't be sampled while the radio is up. Pick ADC1 (32–39) for analog.
+        </li>
+        <li>
+          <strong>ADC nonlinearity.</strong> The 12-bit reading is closer to 10 effective bits — the curve sags at both
+          rails. Apply the eFuse two-point calibration (<code>esp_adc_cal</code>), or oversample 16–64 reads and average.
+        </li>
+        <li>
+          <strong>Strapping pins are not free GPIO.</strong> Wire an external pull-down on GPIO0 and the chip refuses
+          to boot. Wire a strong pull-up on GPIO12 and the bootloader picks the wrong flash voltage. Default rule: if
+          you must use a strapping pin as an output, drive it through a series resistor and don't pull it during reset.
+        </li>
+        <li>
+          <strong>GPIO34–39 have no internal pull-ups.</strong> If you put a button on GPIO34, add an external 10 kΩ
+          pull-up — there's no <code>INPUT_PULLUP</code> option for those pins.
+        </li>
+        <li>
+          <strong>Deep sleep wakeups only on RTC-domain pins.</strong> External wake works on RTC GPIO 0, 2, 4, 12–15,
+          25–27, 32–39. The rest of the chip is powered down. Touch wake works on the touch-capable subset.
+        </li>
+        <li>
+          <strong>Flash encryption is a one-way door.</strong> Enabling <code>FLASH_CRYPT_CNT</code> in eFuse is
+          permanent. Once on, you can only flash encrypted images, and a wrong key bricks the chip. Test the whole flow
+          on a sacrificial board before shipping.
+        </li>
+        <li>
+          <strong>Serial output during boot.</strong> GPIO15 strapping controls whether the ROM prints boot logs on
+          UART0. If you've wired GPIO15 to something that pulls it low, you lose the logs (which is actually how you
+          silence the noise on production boards).
+        </li>
+      </ul>
+    </>
+  ),
   "c-1n4148": () => (
     <>
       <h2>What it is</h2>
