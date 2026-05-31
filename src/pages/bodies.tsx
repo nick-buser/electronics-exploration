@@ -4738,7 +4738,7 @@ void loop() {
         rows={[
           [<>V<sub>CC</sub></>, "4.8 – 6 V. Drives directly off a 4-cell NiMH or a 5 V rail"],
           [<>I<sub>idle</sub></>, "~10 mA at rest, ~250 mA peak when moving against a load, ~700 mA when stalled"],
-          ["Operating range", "0° to 180° (some clones only 0–160°). 360° "continuous-rotation" variants exist but behave differently"],
+          ["Operating range", "0° to 180° (some clones only 0–160°). 360° continuous-rotation variants exist but behave differently"],
           ["Stall torque", "1.8 kg·cm @ 4.8 V, 2.2 kg·cm @ 6 V"],
           ["Speed", "~0.1 s per 60° (= 600°/s) at no load"],
           ["Mass", "9 g (SG90) / 13 g (MG90S, metal gears)"],
