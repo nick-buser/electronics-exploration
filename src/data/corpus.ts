@@ -60,6 +60,7 @@ export const COMPONENTS: Component[] = [
   { type: "component", slug: "c-2n7000", title: "2N7000 NMOS", domain: "ee", deck: "Small-signal N-channel enhancement MOSFET. Vth ≈ 1.5V, drives 200mA. Cheap, common, TO-92 — what you reach for when an MCU pin can't sink enough current." },
   { type: "component", slug: "c-led", title: "LED", domain: "ee", deck: "The first peripheral every engineer wires up. A pn junction that emits photons instead of heat. Get the current-limit resistor right and everything else follows." },
   { type: "component", slug: "c-pushbutton", title: "Pushbutton", domain: "ee", deck: "Two pieces of metal that touch when you press them. Add a pull-up and a debouncer and you've got reliable digital input." },
+  { type: "component", slug: "c-bme280", title: "BME280", domain: "ee", deck: "Bosch's three-in-one I²C sensor. Temperature, humidity, barometric pressure on one chip — and altitude almost for free." },
 ];
 
 export const TOOLS: Tool[] = [
