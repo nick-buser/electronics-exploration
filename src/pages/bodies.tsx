@@ -5105,6 +5105,272 @@ void loop() {}`}
       </ul>
     </>
   ),
+  "c-as5600": () => (
+    <>
+      <h2>What it is</h2>
+      <p>
+        AMS Osram's <strong>AS5600</strong> is a contactless absolute rotary position sensor — a 12-bit magnetic
+        encoder in an SOIC-8 package that reads the angle of a small <strong>diametrically magnetised magnet</strong>{" "}
+        rotating ~1.5 mm above the chip. Four Hall-effect sensors on the die measure the radial and tangential
+        components of the magnet's field; an on-die CORDIC algorithm computes <code>atan2()</code> on the result; the
+        12-bit angle (0 – 4095, representing 0° – 360°) is available over I²C, or as an analog voltage on OUT, or as
+        a PWM-encoded duty cycle on the same pin.
+      </p>
+      <p>
+        The combination of <strong>absolute</strong> (no homing needed — you know the angle the moment you power up),
+        <strong> contactless</strong> (no wear, no electrical noise from sliding contacts, sealed environments are
+        fine), <strong>12-bit</strong> (0.088° resolution), and <strong>$2 in a single-chip form factor</strong> is
+        why the AS5600 has become the default angle sensor for replacing mechanical rotary encoders, sensing motor
+        rotor position for field-oriented BLDC control (see <a href="#/c-drv8323">c-drv8323</a>), reading user-
+        rotation knobs without detents, and ~anything else that needs to measure rotation around a fixed axis.
+      </p>
+      <h2>Datasheet at a glance</h2>
+      <SpecTable
+        rows={[
+          [<>V<sub>DD</sub></>, "3.0 – 3.6 V (also accepts 4.5 – 5.5 V via the chip's internal LDO — use V_DD3V3 pin in that case)"],
+          [<>I<sub>DD</sub></>, "~6.5 mA active, ~7 µA in low-power mode"],
+          ["Resolution", "12-bit absolute (4096 counts per revolution = 0.088° per count)"],
+          ["Output formats", "I²C (always), analog on OUT (0 – V_DD ratiometric), PWM on OUT (115 Hz, 12-bit duty)"],
+          ["Update rate", "150 µs latency (= ~6 kHz max sample rate over I²C)"],
+          ["Magnet", "Diametrically magnetised, 6 mm diameter recommended, ~10 mT field at the sensor surface"],
+          ["Magnet distance", "0.5 – 3 mm from the chip's top surface. 1.5 mm is the sweet spot"],
+          ["Working temperature", "−40 to +125 °C"],
+          ["Interface", "I²C up to 1 MHz (Fast-Mode Plus)"],
+          ["I²C address", "0x36 — fixed, not configurable (single device per bus, or use a TCA9548A mux)"],
+          ["OTP zero-point", "One-time-programmable angle offset. Burn it once to define your mechanical zero"],
+          ["Package", "SOIC-8, 5 × 4 × 1.5 mm. Always on a breakout for the magnet fixture"],
+        ]}
+      />
+      <h2>How it works — Hall sensors + CORDIC</h2>
+      <p>
+        Inside the die, four Hall-effect sensors are arranged in a square pattern around the chip's centre. A
+        diametrically magnetised magnet (north pole on one side of the disc, south on the other — not top-bottom)
+        rotating above the chip produces a roughly sinusoidal magnetic-field component at each sensor, with the
+        opposing pairs ~180° out of phase with each other. Two differential subtractions give you a sine and a
+        cosine of the magnet's angle — exactly what you need to compute angle via <code>atan2(sin, cos)</code>.
+      </p>
+      <p>
+        The on-die <strong>CORDIC</strong> coprocessor evaluates that arctangent in fixed-point arithmetic without
+        needing a multiplier or a divider — it iteratively rotates the (sin, cos) vector toward the x-axis with a
+        sequence of predefined micro-rotations, accumulating the total rotation as the answer. Twelve iterations =
+        12 bits of resolution. The output is in register <code>ANGLE</code> (0x0E / 0x0F, 12-bit), updated every
+        150 µs.
+      </p>
+      <Callout label="// why diametrically magnetised">
+        A diametric magnet has its N and S poles on opposite <em>sides</em> of the disc (e.g., N at 3 o'clock,
+        S at 9 o'clock). Rotate it and the field at a fixed point in space goes through a full N→S→N cycle per
+        revolution — exactly the sinusoid the chip's algorithm assumes. An axially-magnetised magnet (poles on top
+        and bottom of the disc) produces almost no in-plane field component and the chip can't see rotation. This
+        is the single most common AS5600 wiring problem: the wrong magnet was used.
+      </Callout>
+      <h2>The magnet, the gap, and the alignment</h2>
+      <p>
+        The chip needs the magnet's <strong>centre</strong> directly over the package centre (within ~0.25 mm), at a
+        <strong> 0.5 – 3 mm gap</strong>. Outside those tolerances, the field at the four sensors becomes
+        non-sinusoidal, the (sin, cos) basis is distorted, and the angle reading either becomes nonlinear (mild
+        offset) or completely wrong (severe). The chip publishes a <strong>status register</strong> at 0x0B that
+        tells you when the magnet is good (MD bit), too close (MH bit, "magnet too strong"), too far (ML bit,
+        "magnet too weak"), so a smart driver checks before trusting the angle.
+      </p>
+      <SpecTable
+        rows={[
+          [
+            "MD (Magnet Detected)",
+            <>HIGH when the chip sees a usable magnet. Idle = no magnet detected = your angle reads are garbage</>,
+          ],
+          [
+            "MH (Magnet too High / strong)",
+            <>HIGH when the field exceeds ~80 mT (gap too small, or wrong magnet grade). Reduce gap or use a
+            weaker magnet</>,
+          ],
+          [
+            "ML (Magnet too Low / weak)",
+            <>HIGH when field falls below ~5 mT (gap too large, magnet too small, wrong direction). Move closer
+            or use a stronger magnet</>,
+          ],
+          [
+            "AGC (Automatic Gain Control)",
+            <>Read-only 0–255 value. Live indicator of magnetic field strength. Sweet spot is ~128 — high means
+            field is weak (AGC cranked up), low means field is strong (AGC turned down)</>,
+          ],
+        ]}
+      />
+      <h2>Wiring</h2>
+      <SpecTable
+        rows={[
+          [<>V<sub>CC</sub></>, "3.3 V (or 5 V to V_DD5V pin on the breakout — internal LDO regulates)"],
+          ["GND", "Common ground"],
+          ["SDA", "I²C data, 4.7 kΩ pull-up to 3.3 V (usually populated on the breakout)"],
+          ["SCL", "I²C clock, 4.7 kΩ pull-up"],
+          ["OUT", "Analog or PWM angle output (optional — leave floating if you only use I²C)"],
+          [
+            "DIR",
+            <>Direction select. Tie LOW = angle increases with CCW rotation, tie HIGH = angle increases CW.
+            <strong> Do not leave floating</strong> — it's not internally pulled, and floating gives unstable
+            angle direction</>,
+          ],
+          [
+            "PGO",
+            <>Programming pin for burning the OTP one-time-programmable zero-position. Tie LOW for normal use,
+            or follow the AMS programming procedure for permanent setup</>,
+          ],
+        ]}
+      />
+      <h2>Reading the angle</h2>
+      <CodeBlock
+        language="cpp"
+        filename="as5600_read.ino"
+        code={`#include <Wire.h>
+#include <AS5600.h>
+
+AS5600 enc;
+
+void setup() {
+  Wire.begin();
+  Serial.begin(115200);
+  enc.begin(4);            // DIR pin on GPIO4 (or omit for I²C-only with hardware DIR pin)
+  enc.setDirection(AS5600_CLOCK_WISE);
+  if (!enc.isConnected()) {
+    Serial.println("AS5600 not found at 0x36 — check wiring");
+    while (1) delay(10);
+  }
+}
+
+void loop() {
+  // Quick magnet sanity check
+  uint8_t status = enc.readStatus();
+  bool md = status & 0x20;   // magnet detected
+  bool mh = status & 0x08;   // magnet too high
+  bool ml = status & 0x10;   // magnet too low
+  if (!md)         Serial.println("WARNING: no magnet detected");
+  else if (mh)     Serial.println("WARNING: magnet too close");
+  else if (ml)     Serial.println("WARNING: magnet too far");
+
+  uint16_t raw = enc.readAngle();              // 0–4095
+  float    deg = raw * (360.0f / 4096.0f);     // 0.0 – 359.91 °
+  Serial.printf("angle = %4u (%.2f°)  AGC = %3u\\n",
+                raw, deg, enc.readAGC());
+  delay(100);
+}`}
+      />
+      <h2>Multi-turn counting</h2>
+      <p>
+        The AS5600 itself is a <strong>single-turn</strong> sensor — it always reads 0 – 4095, wrapping around at
+        each revolution. To count revolutions in software, sample fast enough that you never miss a wrap, then
+        detect the wrap by looking at the delta:
+      </p>
+      <CodeBlock
+        language="cpp"
+        filename="multiturn.ino"
+        code={`int32_t totalAngle = 0;        // accumulated angle in counts (4096 = one full turn)
+uint16_t lastRaw   = 0;
+
+void update() {
+  uint16_t raw  = enc.readAngle();
+  int16_t  delta = (int16_t)raw - (int16_t)lastRaw;
+  // Wrap-handling: any delta > half a turn is a wrap, not a real motion
+  if      (delta >  2048) delta -= 4096;
+  else if (delta < -2048) delta += 4096;
+  totalAngle += delta;
+  lastRaw = raw;
+}`}
+      />
+      <p>
+        For the algorithm to work reliably you must sample faster than the maximum rotation rate produces half a
+        revolution per sample interval. At 100 Hz sampling that caps you at 50 turns/sec (3000 RPM). Bump the
+        sample rate, raise the limit. For continuously-rotating shafts at high RPM, use the AS5048A (similar chip
+        with built-in multi-turn) or the AS5601 (companion to the AS5600 with explicit ABI quadrature outputs).
+      </p>
+      <h2>Sibling chips</h2>
+      <Compare
+        header={["", "Resolution", "Interface", "Notable"]}
+        rows={[
+          ["AS5600", "12-bit", "I²C + PWM + analog", "This page. Single-turn, default for general use"],
+          ["AS5600L", "12-bit", "I²C only", "Lower-current variant, no analog/PWM out"],
+          ["AS5601", "14-bit", "I²C + ABI quadrature + PWM", "Pin-compatible with AS5600 but adds incremental ABI outputs for legacy drivers"],
+          ["AS5047P / AS5048A", "14-bit / 14-bit", "SPI / SPI + I²C", "Higher resolution, faster update, multi-turn variants. For motor commutation"],
+          ["TMAG5273 (TI)", "12-bit", "I²C", "Cheaper alternative. 3-axis Hall, slightly less polished"],
+          ["MT6701 (MagnTek)", "14-bit", "SSI / I²C / ABZ / PWM", "Newer Chinese clone, ~$1, growing ecosystem"],
+        ]}
+      />
+      <h2>Common applications</h2>
+      <SpecTable
+        rows={[
+          [
+            "Endless rotary knob",
+            <>The most direct use. Glue a 6 mm magnet to a shaft, mount the AS5600 underneath, build your
+            volume/brightness/menu knob. No detents, no wear, infinite rotation</>,
+          ],
+          [
+            "BLDC rotor position",
+            <>Mount a diametric magnet on the rotor shaft, place the AS5600 on a stationary PCB underneath.
+            Read the absolute rotor angle for sinusoidal commutation / field-oriented control. The whole point of
+            <a href="#/c-drv8323"> c-drv8323</a></>,
+          ],
+          [
+            "Joint angle sensing",
+            <>Robotics — angle of a knee, elbow, wrist. Magnet on the moving link, AS5600 on the static link.
+            Survives dust, water, vibration</>,
+          ],
+          [
+            "Throttle position / wheel position",
+            <>Automotive-adjacent. The chip's temperature range goes to 125 °C and the contactless nature is
+            self-healing against mud/water/dust</>,
+          ],
+        ]}
+      />
+      <h2>Gotchas</h2>
+      <ul>
+        <li>
+          <strong>Wrong magnet type is the #1 wiring problem.</strong> Already flagged but the most common
+          AS5600-doesn't-work issue. Tape an axially-magnetised magnet (the kind you usually find around the
+          house) on top and the angle never changes. You need a <em>diametric</em> magnet — sold specifically for
+          rotary encoders, usually 6 × 2.5 mm disc, N52 grade. ~$1 per piece. The AS5600 breakout from AMS or
+          Adafruit ships with the correct magnet.
+        </li>
+        <li>
+          <strong>The fixed 0x36 I²C address is a problem if you want more than one.</strong> No address-select pin
+          — every AS5600 on a bus answers to 0x36. For multi-encoder setups (a robot arm with one per joint), use
+          a <strong>TCA9548A I²C multiplexer</strong> (8 channels, $1), or the AS5600L which has a programmable
+          address option, or just put each encoder on a separate I²C bus (most modern MCUs have at least two).
+        </li>
+        <li>
+          <strong>Magnet alignment is more sensitive than the gap.</strong> Off-centre by 0.5 mm and the angle
+          becomes nonlinear (you'll see a sinusoidal error superimposed on the real angle as the magnet rotates).
+          A 3D-printed alignment fixture is worth the time for any production use; for prototypes, eyeball it as
+          best you can and check the AGC reading stays near 128 across a full rotation.
+        </li>
+        <li>
+          <strong>The OTP zero burn is permanent.</strong> Once you burn the ZPOS / MPOS registers via the
+          programming sequence, you can't change them again — only AMS's tooling can over-burn (which is hard).
+          For development, leave the burn unwritten and apply the zero in firmware; only burn at production
+          calibration if you're certain.
+        </li>
+        <li>
+          <strong>Ferrous metal nearby distorts the field.</strong> Mount the AS5600 over a steel chassis or near
+          a motor's stator iron and the field at the sensors becomes asymmetric — same effect as off-centring,
+          mild to severe depending on geometry. Either keep ferrous material at least 5 mm away from the chip, or
+          calibrate the angle-vs-position curve and apply a software correction table.
+        </li>
+        <li>
+          <strong>DIR pin floating is unstable.</strong> Not internally pulled. Leave it floating and the direction
+          interpretation flips randomly between power cycles. Always tie DIR to GND or V_DD (or to a GPIO if you
+          want to switch it under software control).
+        </li>
+        <li>
+          <strong>The 6 kHz max update rate is shared between I²C reads.</strong> A new angle is available every
+          150 µs internally. If you poll faster than that you'll just read the same value twice. For high-speed
+          motor control where you need sub-100 µs latency, the AS5047P (SPI) is the better choice — it updates
+          at up to 28 kHz with one read latency of ~20 µs.
+        </li>
+        <li>
+          <strong>The analog OUT is ratiometric, not absolute.</strong> The analog output spans 0 V to V<sub>DD</sub>,
+          not 0 to a fixed reference. ADC-side, you must ratio against the same V<sub>DD</sub> the chip is using
+          to get a stable reading — or just use the I²C path, which is unaffected.
+        </li>
+      </ul>
+    </>
+  ),
 };
 
 export const JournalBodies: Record<string, Body> = {
