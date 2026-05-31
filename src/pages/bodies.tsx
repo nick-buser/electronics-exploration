@@ -3154,6 +3154,245 @@ void setBrightness(uint8_t input) {
       </ul>
     </>
   ),
+  "c-pushbutton": () => (
+    <>
+      <h2>What it is</h2>
+      <p>
+        Two pieces of metal that touch when you press them, and don't when you don't. The "tactile" or "momentary"
+        switch found in every dev board reset corner: a four-pin SMD or through-hole part where the four legs are
+        actually two pairs of internally-bridged terminals, and pressing the dome shorts pair A to pair B for as long
+        as you're holding it. There's no semiconductor physics in the body of the switch — just a phosphor-bronze
+        contact dome that buckles under finger pressure, makes contact, and snaps back when released.
+      </p>
+      <p>
+        Despite the apparent simplicity, a bare pushbutton wired directly to an MCU input is one of the most reliable
+        ways to get unreliable behaviour. Two problems lurk: <strong>floating inputs</strong> (the GPIO has nothing
+        pulling it to a known state when the button is open) and <strong>contact bounce</strong> (the metal-on-metal
+        contact rings for 1–10 ms as the dome settles). Solving them is a tiny circuit + a handful of code lines and
+        always the same recipe, so it's worth getting right once.
+      </p>
+      <h2>The mechanism — and why it bounces</h2>
+      <p>
+        Inside a 6 mm tactile switch you have a domed contact made of beryllium copper or phosphor bronze, suspended
+        over two fixed contacts. When you press the actuator, the dome inverts (this is what makes the satisfying
+        "click") and shorts the two fixed contacts together. The dome's spring force is what restores the open state.
+      </p>
+      <p>
+        The bounce happens because the dome doesn't make a single clean contact — it momentarily touches, separates
+        microscopically as the metal flexes, touches again, separates, and so on for 1–10 milliseconds until it settles.
+        From the GPIO's perspective, that single physical press produces a burst of <strong>tens to hundreds of
+        rising and falling edges</strong>. Read the pin in a loop and you'll count one press as many; trigger an
+        interrupt on edge and you'll get a flurry of them.
+      </p>
+      <h2>Pull-up vs pull-down</h2>
+      <p>
+        A floating CMOS input picks up enough ambient noise (60 Hz hum, your finger near the trace, the FET drain of
+        a passing GPIO toggle next door) that it reads as random digital noise. The fix is a <strong>pull resistor</strong>{" "}
+        — a ~10 kΩ from the input to either V<sub>cc</sub> or GND, defining a known state when the button is open.
+      </p>
+      <SpecTable
+        rows={[
+          [
+            "Pull-up (most common)",
+            <>One side of the button to GND, other to GPIO; 10 kΩ from GPIO to V<sub>cc</sub>. Pin reads <strong>HIGH idle</strong>, <strong>LOW pressed</strong></>,
+          ],
+          [
+            "Pull-down",
+            <>One side of the button to V<sub>cc</sub>, other to GPIO; 10 kΩ from GPIO to GND. Pin reads <strong>LOW idle</strong>, <strong>HIGH pressed</strong></>,
+          ],
+          [
+            "Internal pull-up",
+            <>Most MCUs (STM32, ESP32, RP2040, nRF52, AVR) have a ~50 kΩ pull-up built into every GPIO. Enable it with <code>pinMode(PIN, INPUT_PULLUP)</code> and skip the external resistor</>,
+          ],
+          [
+            "Internal pull-down",
+            <>STM32 / ESP32 / nRF52 have these too; AVR does not. Same idea, opposite polarity</>,
+          ],
+        ]}
+      />
+      <Callout>
+        Convention almost everywhere: <strong>active-low pull-up wiring</strong>. The button connects the input to GND
+        when pressed. The reason is historical (TTL inputs were happier sinking than sourcing) but it's stuck around
+        because every example, every library, and every dev board assumes it.
+      </Callout>
+      <h2>Debouncing — three approaches</h2>
+      <p>
+        Once the pull is sorted, the bounce is the next problem. Three patterns, increasing in complexity:
+      </p>
+      <h3>1. Software debounce (delay)</h3>
+      <CodeBlock
+        language="cpp"
+        filename="debounce_delay.ino"
+        code={`const int BTN = 2;
+int lastReading = HIGH;
+int stableState = HIGH;
+unsigned long lastChangeMs = 0;
+const unsigned long DEBOUNCE_MS = 20;
+
+void setup() {
+  pinMode(BTN, INPUT_PULLUP);   // idle HIGH, pressed LOW
+  Serial.begin(115200);
+}
+
+void loop() {
+  int reading = digitalRead(BTN);
+  if (reading != lastReading) {
+    lastChangeMs = millis();
+    lastReading = reading;
+  }
+  if (millis() - lastChangeMs > DEBOUNCE_MS) {
+    if (reading != stableState) {
+      stableState = reading;
+      if (stableState == LOW) Serial.println("pressed");
+    }
+  }
+}`}
+      />
+      <p>
+        The pattern: any time the pin changes, restart a 20 ms timer. Only commit the new state once the timer expires
+        without further changes. Twenty milliseconds is enough to outlast every tactile switch's bounce window without
+        being slow enough that the user notices the lag. This is the textbook approach and it works.
+      </p>
+      <h3>2. Hardware debounce (RC + Schmitt)</h3>
+      <p>
+        A 10 kΩ pull-up + a 100 nF cap from input to GND forms a low-pass filter with a 1 ms time constant. Any bounce
+        faster than that gets smoothed out before the GPIO sees it. Pair it with a Schmitt-trigger input (see{" "}
+        <a href="#/pr-schmitt">pr-schmitt</a>) and you have a hardware debouncer that needs no firmware support:
+      </p>
+      <Callout label="// math">
+        τ = R · C &nbsp;·&nbsp; for 10 kΩ + 100 nF, τ = 1 ms — bounce attenuated 99 % within 5 ms
+      </Callout>
+      <p>
+        The downside is the part count (one resistor, one cap, sometimes one Schmitt buffer) and the fact that you
+        also slow down the genuine edge. Worth it for noisy environments, mechanical switches that age into bad
+        bounce, or designs where the firmware can't afford a debounce loop.
+      </p>
+      <h3>3. Dedicated debounce IC</h3>
+      <p>
+        Maxim's MAX6816 / MAX6817 / MAX6818 series, or the older MC14490, do this in silicon: pin in, debounced
+        pin out, fixed ~40 ms window. Overkill for one button, but handy when you have a keypad matrix or a panel
+        of switches and want them all clean without 16 RC filters or a tight scan loop.
+      </p>
+      <h2>Reading buttons in real firmware</h2>
+      <p>
+        For more than one button, the delay-based loop above scales badly. Two patterns hold up better:
+      </p>
+      <CodeBlock
+        language="cpp"
+        filename="debounce_shift.ino"
+        code={`// Shift-register debounce: sample at a fixed rate, shift the new bit into a
+// rolling history. The state is confirmed only when the last N samples agree.
+// At a 1 kHz sample rate and N=8, this is ~8 ms of agreement required.
+volatile uint8_t btn_history = 0xFF;   // 1 = released, 0 = pressed
+volatile bool    btn_pressed = false;
+
+void on_1ms_tick() {                    // call from a timer ISR at 1 kHz
+  btn_history = (btn_history << 1) | digitalRead(BTN);
+  if (btn_history == 0x00) {            // 8 consecutive pressed samples
+    btn_pressed = true;
+  } else if (btn_history == 0xFF) {     // 8 consecutive released
+    btn_pressed = false;
+  }
+}`}
+      />
+      <p>
+        The pattern is portable, fast (one shift + one compare per sample), debounces, and naturally extends to
+        click-vs-hold detection (count consecutive 0x00s) and chord detection (combine multiple histories). Most
+        production firmware looks like this. The {`<Bounce2>`} library on Arduino, {`button.h`} on Zephyr, and{" "}
+        {`<debouncer>`} on embassy-rs all wrap variations of it.
+      </p>
+      <h2>Beyond the basic press</h2>
+      <SpecTable
+        rows={[
+          [
+            "Click vs hold",
+            <>Measure the press duration; &gt; 500 ms = hold, &lt; 200 ms = click. The interaction every fitness tracker and smart light uses</>,
+          ],
+          [
+            "Double-click",
+            <>Detect a release-then-press cycle within 250 ms of the first release. Mouse-style, useful for binary mode toggle on a single button</>,
+          ],
+          [
+            "Long-press lockout",
+            <>Many products require a 3–5 s hold for destructive actions (factory reset, force-off). Same idea, longer threshold</>,
+          ],
+          [
+            "Repeat-on-hold",
+            <>After 500 ms of hold, emit a "press" event every 100 ms. Volume-up / volume-down behaviour without polling code</>,
+          ],
+          [
+            "Keypad matrix (rows × columns)",
+            <>16 buttons in 4 rows × 4 columns = 8 GPIOs instead of 17. Scan one row at a time, read all columns, debounce per cell</>,
+          ],
+        ]}
+      />
+      <h2>Switch variety zoo</h2>
+      <SpecTable
+        rows={[
+          ["Tactile (6×6 mm, 3×6 mm SMD)", "The default. 50 mN to 260 mN actuation force. ~100k cycle life"],
+          ["Through-hole 12 mm", "Larger, easier to hand-solder. Same circuit, same code"],
+          ["Slide switch (SPDT, DPDT)", "Latching. No spring back. Use for power switches and mode selectors"],
+          ["Rocker switch", "Same as slide but with the angled paddle. Same circuit"],
+          ["Toggle switch", "Industrial latching switch with a lever. Sometimes lit (LED bezel)"],
+          ["Reed switch", "Hermetically sealed magnetic switch. Closes when a magnet is brought close — door sensors, flow meters"],
+          ["Hall-effect button", "Solid-state, no contact wear, no bounce. Costs 10× a tactile but lasts forever"],
+          ["Capacitive touch pad", "No moving parts at all. ESP32 and nRF52840 have built-in capacitive sensing"],
+          ["Membrane keypad", "Cheap multi-button panel. Internally a matrix; treat as the matrix above"],
+          ["Rotary encoder", "Two switches phased 90° apart on a knob. See click detection patterns for one button per channel"],
+        ]}
+      />
+      <h2>Gotchas</h2>
+      <ul>
+        <li>
+          <strong>The four pins are two pairs.</strong> On a standard 6 mm tactile switch, the four legs are{" "}
+          A1-A2-B1-B2 where A1↔A2 and B1↔B2 are <em>permanently</em> connected. The button shorts A↔B when pressed.
+          Wire two of the wrong pins together and you've built a press-resistance of zero — the switch is "on"
+          forever. The datasheet's footprint diagram tells you the pairing; "across the long axis" is the convention
+          but not universal.
+        </li>
+        <li>
+          <strong>Floating inputs read random.</strong> Already flagged but bears repeating — a CMOS input with no
+          pull is not "low," it's "whatever stray charge it picked up." Symptom: button works on a breadboard alone,
+          starts misbehaving once you plug in a USB cable that runs near the trace. Fix: always pull. Internal
+          pull-ups are free; use them.
+        </li>
+        <li>
+          <strong>EXTI interrupts on a bouncy edge will fire 5–50 times per press.</strong> Interrupt-on-rising-edge
+          for a press counter is the obvious move and it always backfires. Either debounce in the ISR (small enable
+          window + state machine) or take the polling-at-1-kHz path above. The "use both edges + dt threshold"
+          shortcut works but the polling pattern is friendlier to read.
+        </li>
+        <li>
+          <strong>Cap-touch pads need calibration on every power-up.</strong> Self-capacitance of an exposed pad
+          drifts with temperature and humidity. The MCU's touch driver auto-calibrates at boot, so don't touch the
+          pad during the first 200 ms — or you'll calibrate the pad's resting state to "finger present" and never
+          register a touch.
+        </li>
+        <li>
+          <strong>Mechanical wear is real.</strong> A tactile rated 100k cycles really does get bouncier as it
+          ages — a button that worked clean at year 1 might need 50 ms of debounce instead of 20 ms by year 5.
+          For products people use daily (UI buttons on appliances), spec a 1M-cycle switch and debounce generously
+          in firmware.
+        </li>
+        <li>
+          <strong>ESD on exposed pushbuttons.</strong> A button on the outside of an enclosure is an ESD entry point
+          straight to a GPIO. Add a TVS diode (PESD3V3L1BA) and/or a 100 Ω series resistor to the trace if the
+          board has to pass ±8 kV contact discharge.
+        </li>
+        <li>
+          <strong>One button, two functions = mental load.</strong> Click/double-click/long-press combinations
+          quickly exceed what users can remember. Fitbits and AirPods have the budget to teach this; if your product
+          doesn't, prefer two cheap buttons over one button with three behaviours.
+        </li>
+        <li>
+          <strong>Reset buttons aren't pushbuttons in the firmware sense.</strong> The MCU's NRST pin needs an RC
+          filter (100 nF to GND) and a 10 kΩ pull-up to V<sub>cc</sub> — and the button goes between NRST and GND.
+          Debouncing happens implicitly because the chip is held in reset for the entire press window. No firmware
+          involved.
+        </li>
+      </ul>
+    </>
+  ),
 };
 
 export const JournalBodies: Record<string, Body> = {
