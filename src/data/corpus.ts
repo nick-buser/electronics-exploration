@@ -62,6 +62,7 @@ export const COMPONENTS: Component[] = [
   { type: "component", slug: "c-pushbutton", title: "Pushbutton", domain: "ee", deck: "Two pieces of metal that touch when you press them. Add a pull-up and a debouncer and you've got reliable digital input." },
   { type: "component", slug: "c-bme280", title: "BME280", domain: "ee", deck: "Bosch's three-in-one I²C sensor. Temperature, humidity, barometric pressure on one chip — and altitude almost for free." },
   { type: "component", slug: "c-mpu6050", title: "MPU6050", domain: "ee", deck: "6-DoF MEMS IMU on every $2 module. Three-axis accelerometer + three-axis gyroscope on one I²C die. Bring your own sensor fusion." },
+  { type: "component", slug: "c-bno055", title: "BNO055", domain: "ee", deck: "Bosch's 9-DoF IMU with sensor fusion built in. Outputs quaternions and Euler angles — no Kalman filter for you to write." },
 ];
 
 export const TOOLS: Tool[] = [
