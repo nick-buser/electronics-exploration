@@ -3610,6 +3610,227 @@ void loop() {
       </ul>
     </>
   ),
+  "c-mpu6050": () => (
+    <>
+      <h2>What it is</h2>
+      <p>
+        InvenSense's 2011 (now TDK's) six-degree-of-freedom IMU: a three-axis MEMS <strong>accelerometer</strong> plus
+        a three-axis MEMS <strong>gyroscope</strong> on one die, plus a 16-bit ADC, an on-die temperature sensor, an
+        I²C interface, and a half-documented on-die DSP called the <strong>DMP</strong> (Digital Motion Processor)
+        that does sensor fusion entirely in firmware. Sold as a bare GY-521 module for under $2; ten years after launch
+        it's still the chip that ships on every "Arduino IMU" tutorial despite being officially obsolete.
+      </p>
+      <p>
+        For a modern design you'd reach for the <strong>ICM-20948</strong> (TDK's successor, adds magnetometer + better
+        gyro), the <strong>BNO055</strong> (Bosch, with on-chip Kalman fusion — see <a href="#/c-bno055">c-bno055</a>),
+        or the <strong>LSM6DSOX</strong> (ST, lower noise, ML core). But the MPU6050 stays popular because the modules
+        are cheap, the libraries are mature, and "two axes of accel + one of gyro" is enough for almost any hobby
+        project that doesn't need heading-relative motion.
+      </p>
+      <h2>Datasheet at a glance</h2>
+      <SpecTable
+        rows={[
+          [<>V<sub>DD</sub></>, "2.375 – 3.46 V chip; modules ship with an LDO so 5 V supply is fine"],
+          [<>I<sub>DD</sub></>, "3.9 mA active (both sensors), 5 µA gyro-standby, &lt; 5 µA full sleep"],
+          ["Accelerometer", "3-axis, 16-bit, programmable ±2 / ±4 / ±8 / ±16 g range, up to 1 kHz output rate"],
+          ["Gyroscope", "3-axis, 16-bit, ±250 / ±500 / ±1000 / ±2000 °/s, up to 8 kHz output rate"],
+          ["Temperature", "On-die, ±1 °C — same caveats as the BME280's bandgap sensor (self-heating)"],
+          ["Interface", "I²C up to 400 kHz (Fast Mode). No SPI on this chip — that's the MPU6500/9250"],
+          ["I²C address", "0x68 (AD0 to GND) or 0x69 (AD0 to V_DD)"],
+          ["Built-in DMP", "Undocumented coprocessor that runs Kalman fusion on-die. Outputs quaternions at 200 Hz"],
+          ["FIFO", "1024-byte buffer. Stream samples to it, drain at your own pace"],
+          ["Aux I²C master", "A second I²C bus the chip can drive — used to talk to an external magnetometer on the MPU9150"],
+          ["Package", "QFN-24, 4 × 4 × 0.9 mm"],
+        ]}
+      />
+      <h2>How a MEMS accelerometer works</h2>
+      <p>
+        Inside the die, etched out of single-crystal silicon: a small <strong>proof mass</strong> suspended by silicon
+        flexure springs, with interleaved comb fingers on the mass and on a fixed anchor. Acceleration moves the mass
+        relative to the anchor by nanometres; the gap between the comb fingers changes; the capacitance between them
+        changes proportionally; an on-die charge amplifier reads the change. Three of these structures, oriented
+        orthogonally, give you X/Y/Z acceleration.
+      </p>
+      <Callout label="// the gravity vector is always there">
+        At rest on a table, the accelerometer reads 1 g pointing up — the "1 g of gravity" you spent first-year physics
+        ignoring. You can't separate "the device is accelerating" from "the device is tilted" without a second sensor.
+        That's why the gyro is on the same die.
+      </Callout>
+      <h2>How a MEMS gyroscope works</h2>
+      <p>
+        A MEMS gyro uses the <strong>Coriolis effect</strong>: a small silicon proof mass is electrostatically driven
+        into a sinusoidal lateral vibration at ~30 kHz. When you rotate the chip around the axis perpendicular to that
+        vibration, the Coriolis force pushes the vibrating mass <em>sideways</em> (orthogonal to both the drive and the
+        rotation axis) by an amount proportional to the angular rate. A second set of capacitive pickoffs measures
+        that sideways deflection, demodulates it against the drive signal, and outputs angular rate in °/s. Three
+        decoupled structures handle X, Y, Z. The output is <strong>angular rate</strong>, not angle — to get angle
+        you integrate over time, which we'll come back to.
+      </p>
+      <h2>Wiring</h2>
+      <SpecTable
+        rows={[
+          [<>V<sub>CC</sub></>, "3.3 V or 5 V (module has an LDO)"],
+          ["GND", "Common ground"],
+          ["SDA", "I²C data, 4.7 kΩ pull-up to 3.3 V"],
+          ["SCL", "I²C clock, 4.7 kΩ pull-up to 3.3 V"],
+          ["INT", "Optional: data-ready interrupt to a GPIO. Saves you polling"],
+          ["AD0", "I²C address LSB. GND = 0x68, V_DD = 0x69"],
+          ["XDA / XCL", "Aux I²C master pins. Tie nothing if you're not using them"],
+        ]}
+      />
+      <h2>Reading raw accel + gyro</h2>
+      <CodeBlock
+        language="cpp"
+        filename="mpu6050_raw.ino"
+        code={`#include <Wire.h>
+#include <MPU6050.h>
+
+MPU6050 imu;                          // address defaults to 0x68
+
+void setup() {
+  Wire.begin();
+  Serial.begin(115200);
+  imu.initialize();
+  if (!imu.testConnection()) {
+    Serial.println("MPU6050 not found at 0x68");
+    while (1) delay(10);
+  }
+  imu.setFullScaleAccelRange(MPU6050_ACCEL_FS_4);   // ±4 g
+  imu.setFullScaleGyroRange(MPU6050_GYRO_FS_500);   // ±500 °/s
+}
+
+void loop() {
+  int16_t ax, ay, az, gx, gy, gz;
+  imu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+  // Raw counts → engineering units (±4 g → 8192 LSB/g, ±500 °/s → 65.5 LSB/(°/s))
+  Serial.printf("ax=%+.2fg ay=%+.2fg az=%+.2fg | gx=%+.1f gy=%+.1f gz=%+.1f deg/s\\n",
+                ax / 8192.0f, ay / 8192.0f, az / 8192.0f,
+                gx / 65.5f, gy / 65.5f, gz / 65.5f);
+  delay(20);
+}`}
+      />
+      <h2>Sensor fusion — why neither sensor is enough alone</h2>
+      <p>
+        Accelerometer alone: tells you the gravity vector instantly, gives you pitch and roll from the static tilt.
+        But any motion (running, vibrating, a passing truck) shows up as fake "tilt" — the readings are noisy on any
+        meaningful timescale.
+      </p>
+      <p>
+        Gyro alone: tells you angular rate exactly and instantly. Integrate it and you get angle — but every gyro has
+        a small <strong>bias</strong> (a few °/s of offset that's not really there), and integrating bias over time
+        gives <strong>drift</strong>. Sit the chip perfectly still on a desk and after 30 seconds your "yaw" reading
+        will be many degrees off zero.
+      </p>
+      <p>
+        Combining them solves both problems: use the accelerometer's slow-but-true reading to <strong>correct</strong>{" "}
+        the gyro's fast-but-drifting integration. The two simple combinations:
+      </p>
+      <Callout label="// math (complementary filter)">
+        angle = α · (angle + gyro · dt) + (1 − α) · accel_angle, α ≈ 0.98
+      </Callout>
+      <p>
+        Trust the gyro 98 % of the time (it's accurate over short windows), let the accelerometer pull the answer
+        back to truth the other 2 %. The Kalman filter does the same job more rigorously by tracking the variance of
+        each estimate, but the complementary filter gets you 90 % of the result in 5 lines of code.
+      </p>
+      <CodeBlock
+        language="cpp"
+        filename="complementary_filter.ino"
+        code={`float angle = 0.0f;                  // current pitch estimate, degrees
+const float alpha = 0.98f;
+unsigned long lastUs = 0;
+
+void loop() {
+  imu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+  unsigned long now = micros();
+  float dt = (now - lastUs) * 1e-6f;
+  lastUs = now;
+
+  // From accel: pitch = atan2(ax, sqrt(ay² + az²))
+  float accel_pitch = atan2f(ax, sqrtf(ay*ay + az*az)) * 180.0f / M_PI;
+  // From gyro: angular rate in deg/s
+  float gyro_rate   = gx / 65.5f;
+
+  angle = alpha * (angle + gyro_rate * dt) + (1.0f - alpha) * accel_pitch;
+}`}
+      />
+      <h2>The DMP — fusion on-die</h2>
+      <p>
+        The MPU6050 has an embedded coprocessor called the <strong>DMP</strong> that runs InvenSense's own sensor
+        fusion (a proprietary Kalman variant) and pushes quaternions into the FIFO at 200 Hz. You write some opaque
+        firmware blobs to the chip at boot, configure your sample rate, and read 4-tuples out — no math on the host
+        side. When it works, it's magical.
+      </p>
+      <p>
+        The catch: <strong>InvenSense never published the DMP firmware source</strong> or even reliable docs. The
+        community reverse-engineered a working blob (now in {`<MPU6050_6Axis_MotionApps20.h>`} in Jeff Rowberg's
+        library), and that's what every "MPU6050 with DMP" tutorial uses. It works, but: the load is ~3 KB of opaque
+        bytecode, the boot sequence is brittle, and the temperature compensation is poor — leave a powered MPU6050
+        sitting for an hour and the gyro bias creeps. For new designs, prefer a sensor with documented fusion
+        (BNO055) or write your own with a documented stack like Madgwick or Mahony.
+      </p>
+      <h2>Picking a full-scale range</h2>
+      <SpecTable
+        rows={[
+          ["Accel ±2 g (16384 LSB/g)", "Tilt sensing, slow motion, posture detection. Best resolution"],
+          ["Accel ±4 g (8192 LSB/g)", "General-purpose. Captures normal handheld motion without clipping"],
+          ["Accel ±8 g (4096 LSB/g)", "Sports / fitness motion, robotics arms — anything that throws around 5+ g"],
+          ["Accel ±16 g (2048 LSB/g)", "Drop detection, crash detection, impact logging"],
+          ["Gyro ±250 °/s (131 LSB/°/s)", "Slow rotation — body posture, gimbal stabilisation"],
+          ["Gyro ±500 °/s (65.5 LSB/°/s)", "Default-grade general use, handheld + drone"],
+          ["Gyro ±1000 °/s (32.8 LSB/°/s)", "Aggressive drone manoeuvres"],
+          ["Gyro ±2000 °/s (16.4 LSB/°/s)", "Combat drones, gimbal-induced spin, high-speed rotation"],
+        ]}
+      />
+      <h2>Gotchas</h2>
+      <ul>
+        <li>
+          <strong>Gyro bias drifts with temperature.</strong> Cold MPU6050 reads ~3 °/s gyro offset; warm one reads
+          ~0.5 °/s. The DMP claims to handle this but doesn't, very well. For applications that integrate gyro
+          (heading hold, dead reckoning), either calibrate the bias at boot every time or use a fusion algorithm
+          that adapts.
+        </li>
+        <li>
+          <strong>Bias calibration must happen with the chip at rest.</strong> Most "calibration" code averages 1000
+          readings to find the resting offset. If the device is hand-held or vibrating during calibration, you've
+          burned that motion into the bias estimate as "zero" — and now stationary reads wrong. The pattern: put it
+          flat, count down 3 seconds, then calibrate.
+        </li>
+        <li>
+          <strong>The accel Z axis reads −1 g at rest, not +1 g.</strong> If the chip is flat on a desk with the dots
+          on top, the gravity vector points <em>into</em> the chip's −Z axis. Sign confusion is common; check the
+          datasheet's coordinate axes diagram and verify with a known orientation.
+        </li>
+        <li>
+          <strong>I²C clock-stretching is not supported.</strong> The MPU6050 is happy to talk to a master at up to
+          400 kHz, but it does not <em>stretch</em> the clock if it's busy. Reading too fast (faster than the sensor's
+          output data rate divider produces samples) gives you the same value multiple times — looks like the chip
+          is stuck.
+        </li>
+        <li>
+          <strong>The on-die low-pass filter is shared between accel and gyro.</strong> One register sets the digital
+          LPF cutoff for both sensors. If you need 1 kHz accel data but only 100 Hz gyro, you have to use the higher
+          rate and decimate in software.
+        </li>
+        <li>
+          <strong>FIFO overflow corrupts the buffer.</strong> Set FIFO to "accel + gyro" at 1 kHz and don't drain it
+          fast enough → the on-chip buffer fills, overflows, and the next read gives you bytes out of phase. Each
+          frame is 12 bytes (6 × int16); 1024 / 12 ≈ 85 frames. Drain it every 50 ms at 1 kHz to avoid this.
+        </li>
+        <li>
+          <strong>The "MPU6050 dead" symptom on AliExpress modules.</strong> A surprising number of cheap GY-521s
+          ship with a counterfeit silicon that's never actually programmed. Symptom: <code>testConnection()</code>
+          fails, or always returns the same constant. Try a second module before giving up.
+        </li>
+        <li>
+          <strong>If you need a magnetometer, this isn't your chip.</strong> The MPU6050 has only 6 DoF — accel +
+          gyro, no compass. Without a magnetometer you can integrate angular rate to get relative heading but you
+          can't get absolute "magnetic north." For that, the MPU9250 (older 9-DoF) or ICM-20948 (modern) adds an
+          AK8963 magnetometer on the same die.
+        </li>
+      </ul>
+    </>
+  ),
 };
 
 export const JournalBodies: Record<string, Body> = {
