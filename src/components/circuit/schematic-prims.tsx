@@ -626,6 +626,49 @@ export function Schmitt({ at, label }: { at: Pt; label?: string }) {
   );
 }
 
+/** Abstract integrated-circuit package: a labeled rectangle. Use for
+ *  parts whose internal structure is being treated as a black box (the
+ *  555, a logic IC, a regulator) — pin wires attach to its edges via
+ *  Wire. `at` is the rectangle's center. */
+export function IcBlock({
+  at,
+  width,
+  height,
+  label,
+}: {
+  at: Pt;
+  width: number;
+  height: number;
+  label?: string;
+}) {
+  const [cx, cy] = at;
+  return (
+    <g>
+      <rect
+        x={cx - width / 2}
+        y={cy - height / 2}
+        width={width}
+        height={height}
+        fill="var(--color-bg)"
+        stroke={STROKE}
+        strokeWidth={STROKE_W}
+      />
+      {label && (
+        <text
+          x={cx}
+          y={cy - height / 2 + 14}
+          fontFamily="var(--font-mono)"
+          fontSize={11}
+          fill={VALUE_FILL}
+          textAnchor="middle"
+        >
+          {label}
+        </text>
+      )}
+    </g>
+  );
+}
+
 /** Ground symbol at a single point. */
 export function Ground({ at }: { at: Pt }) {
   const [x, y] = at;

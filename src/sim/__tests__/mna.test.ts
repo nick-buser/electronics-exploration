@@ -117,6 +117,98 @@ describe("Voltage-controlled switch + Schmitt trigger (stateful primitives)", ()
   });
 });
 
+describe("555 astable built from XSCH + SW", () => {
+  it("matches textbook 555 astable period and duty cycle", () => {
+    // Standard 555 astable: R1 = R2 = 10kΩ, C = 100nF, V_cc = 5V.
+    // Textbook: T_high = ln2·(R1+R2)·C, T_low = ln2·R2·C, duty = 66.7%.
+    const R1 = 10000;
+    const R2 = 10000;
+    const C = 100e-9;
+    const Vcc = 5;
+    const vTl = Vcc / 3;
+    const vTh = (2 * Vcc) / 3;
+    const c: Circuit = {
+      elements: [
+        { kind: "V", id: "vcc", a: "vcc", b: "gnd", wave: { kind: "dc", value: Vcc } },
+        { kind: "R", id: "r1", a: "vcc", b: "disch", value: R1 },
+        { kind: "R", id: "r2", a: "disch", b: "cap", value: R2 },
+        { kind: "C", id: "cload", a: "cap", b: "gnd", value: C, ic: 0 },
+        {
+          kind: "XSCH",
+          id: "uout",
+          in: "cap",
+          out: "out",
+          vThHigh: vTh,
+          vThLow: vTl,
+          vHigh: 0,
+          vLow: Vcc,
+        },
+        {
+          kind: "XSCH",
+          id: "ulatch",
+          in: "cap",
+          out: "qlatch",
+          vThHigh: vTh,
+          vThLow: vTl,
+          vHigh: Vcc,
+          vLow: 0,
+        },
+        {
+          kind: "SW",
+          id: "qd",
+          p: "disch",
+          n: "gnd",
+          cp: "qlatch",
+          cn: "gnd",
+          vOn: 0.7 * Vcc,
+          vOff: 0.3 * Vcc,
+          Ron: 10,
+          Roff: 1e9,
+        },
+      ],
+    };
+    const expectedPeriod = Math.log(2) * (R1 + 2 * R2) * C; // ≈ 2.08 ms
+    // Run 6 expected periods at tight dt
+    const samples = runTransient(c, {
+      duration: 6 * expectedPeriod,
+      dt: expectedPeriod / 600,
+    });
+
+    // Pick two adjacent rising edges of OUT in steady state to measure
+    // T and duty. Skip the first period (cap starts at 0 → first half-
+    // cycle is irregular).
+    const skipUntil = 2 * expectedPeriod;
+    const edges: Array<{ t: number; rising: boolean }> = [];
+    let lastHigh = (samples[0].v.out ?? 0) > Vcc / 2;
+    for (const s of samples) {
+      if (s.t < skipUntil) {
+        lastHigh = (s.v.out ?? 0) > Vcc / 2;
+        continue;
+      }
+      const high = (s.v.out ?? 0) > Vcc / 2;
+      if (high !== lastHigh) edges.push({ t: s.t, rising: high });
+      lastHigh = high;
+    }
+    // Need at least 3 edges to extract one full period and one half-cycle
+    expect(edges.length).toBeGreaterThanOrEqual(3);
+    // Find first rising and the next rising
+    const firstRise = edges.find((e) => e.rising);
+    const firstFall = edges.find((e) => !e.rising && firstRise && e.t > firstRise.t);
+    const secondRise = edges.find((e) => e.rising && firstRise && e.t > firstRise.t);
+    expect(firstRise && firstFall && secondRise).toBeTruthy();
+    if (!firstRise || !firstFall || !secondRise) return;
+    const measuredT = secondRise.t - firstRise.t;
+    const measuredTHigh = firstFall.t - firstRise.t;
+    const measuredDuty = measuredTHigh / measuredT;
+    // 5% tolerance on period and duty
+    expect(measuredT).toBeGreaterThan(expectedPeriod * 0.95);
+    expect(measuredT).toBeLessThan(expectedPeriod * 1.05);
+    // Duty cycle = (R1+R2)/(R1+2R2) = 2/3 for equal Rs
+    expect(measuredDuty).toBeGreaterThan(0.63);
+    expect(measuredDuty).toBeLessThan(0.70);
+  });
+});
+
 describe("Op-amp slew rate", () => {
   it("voltage follower clamps dV_out/dt at +SR for a positive step", () => {
     // Buffer fed a 0 → 5V step at t=0. SR = 1 V/µs → output should ramp

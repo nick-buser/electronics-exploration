@@ -13,6 +13,7 @@ import { NmosSwitchDemo } from "@/circuits/NmosSwitchDemo";
 import { GbwTradeoffDemo } from "@/circuits/GbwTradeoffDemo";
 import { SlewRateDemo } from "@/circuits/SlewRateDemo";
 import { RelaxationOscDemo } from "@/circuits/RelaxationOscDemo";
+import { Astable555Demo } from "@/circuits/Astable555Demo";
 import { DemoPWM } from "@/demos/DemoPWM";
 import { DemoBus } from "@/demos/DemoBus";
 import { DemoPID } from "@/demos/DemoPID";
@@ -833,6 +834,30 @@ export const ComponentBodies: Record<string, Body> = {
       <p>
         Duty under 50% takes a diode trick (across R<sub>2</sub>). The math becomes instinct after about three astable
         circuits.
+      </p>
+      <h2>The IC, opened up</h2>
+      <p>
+        Two comparators looking at the same cap, an RS latch holding the result, and a discharge transistor. That's the
+        whole 555. The hysteretic-comparator-plus-flip-flop combination is just a <strong>Schmitt trigger</strong> with
+        thresholds at 1/3 and 2/3 V<sub>cc</sub>, and the discharge transistor is just a <strong>switch</strong> driven
+        from the latch — so the entire IC fits into one Schmitt-trigger element (<code>XSCH</code>) and one voltage-
+        controlled switch (<code>SW</code>) in the simulator. The behavioral model below uses two <code>XSCH</code>s only
+        because we need both Q (driving the switch) and Q̄ (driving pin 3 OUT) — same hysteretic latch, opposite output
+        polarity.
+      </p>
+      <Astable555Demo />
+      <p>
+        Symmetric resistors (R<sub>1</sub> = R<sub>2</sub>) give a duty cycle of 2/3, not 1/2 — visible in the demo as the
+        OUT square wave spending two-thirds of each cycle high. That asymmetry is baked into the topology: during the high
+        phase the cap charges through R<sub>1</sub> + R<sub>2</sub>, but during the low phase it discharges through R<sub>2</sub>{" "}
+        alone (R<sub>1</sub> is shorted to ground via the discharge pin). To get below 50% duty, the trick is a diode
+        across R<sub>2</sub> so the charge path bypasses it.
+      </p>
+      <p>
+        Push V<sub>cc</sub> from 5 V to 12 V and notice the period doesn't change — the 1/3 and 2/3 thresholds scale with
+        the supply, so the cap's RC half-cycle is V<sub>cc</sub>-independent. This is the same trick from the relaxation
+        oscillator's <a href="#/pr-schmitt">Schmitt-trigger page</a>: ratiometric thresholds make frequency depend only on
+        R and C, not on what voltage the chip happens to be running at.
       </p>
       <p>
         No scope handy? Measure the period straight off pin 3 with <code>pulseIn()</code> and back out the frequency:
