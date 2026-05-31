@@ -150,7 +150,8 @@ export function bjtParams(e: Extract<Element, { kind: "Q" }>) {
   const betaR = e.betaR ?? BJT_DEFAULTS.betaR;
   const alphaF = betaF / (betaF + 1);
   const alphaR = betaR / (betaR + 1);
-  return { Is, Vt, betaF, betaR, alphaF, alphaR };
+  const VA = e.VA ?? Infinity;
+  return { Is, Vt, betaF, betaR, alphaF, alphaR, VA };
 }
 
 /** Companion of an NPN-form BJT at the iterate (vbe, vbc). Returns the
@@ -164,23 +165,37 @@ export function bjtCompanion(
 ) {
   const eBE = Math.exp(Math.min(vbe / p.Vt, 30));
   const eBC = Math.exp(Math.min(vbc / p.Vt, 30));
-  const IF = (p.Is / p.alphaF) * (eBE - 1);
+  const IF0 = (p.Is / p.alphaF) * (eBE - 1);
   const IR = (p.Is / p.alphaR) * (eBC - 1);
-  const G_F = (p.Is / p.alphaF / p.Vt) * eBE;
+  const G_F0 = (p.Is / p.alphaF / p.Vt) * eBE;
   const G_R = (p.Is / p.alphaR / p.Vt) * eBC;
+
+  // Early effect: forward current picks up a (1 − V_BC/V_A) base-width
+  // modulation factor. V_A = Infinity (default) collapses ge = 1 and no
+  // partials w.r.t. V_BC from the Early term.
+  const earlyOn = isFinite(p.VA);
+  const ge = earlyOn ? 1 - vbc / p.VA : 1;
+  const IF = IF0 * ge;
+  const G_F = G_F0 * ge;
+  // ∂I_F/∂V_BC = IF0 · ∂ge/∂vbc = IF0 · (-1/VA)
+  const dIF_dVBC = earlyOn ? -IF0 / p.VA : 0;
 
   // Terminal currents (NPN, into device)
   const I_C = p.alphaF * IF - IR;
   const I_B = (1 - p.alphaF) * IF + (1 - p.alphaR) * IR;
   const I_E = -IF + p.alphaR * IR;
 
-  // Partials w.r.t. V_BE and V_BC (NPN form)
+  // Partials w.r.t. V_BE and V_BC (NPN form). V_BE only enters through I_F;
+  // V_BC enters through both the Early factor on I_F and the reverse-diode
+  // I_R. Cross-check: per-V_BE Jacobians sum to 0 (KCL), and per-V_BC
+  // Jacobians also sum to 0 (the dIF_dVBC contributions from C/B/E cancel,
+  // and the I_R contributions cancel independently).
   const dIC_dVBE = p.alphaF * G_F;
-  const dIC_dVBC = -G_R;
+  const dIC_dVBC = p.alphaF * dIF_dVBC - G_R;
   const dIB_dVBE = (1 - p.alphaF) * G_F;
-  const dIB_dVBC = (1 - p.alphaR) * G_R;
+  const dIB_dVBC = (1 - p.alphaF) * dIF_dVBC + (1 - p.alphaR) * G_R;
   const dIE_dVBE = -G_F;
-  const dIE_dVBC = p.alphaR * G_R;
+  const dIE_dVBC = -dIF_dVBC + p.alphaR * G_R;
 
   return {
     I_C,
@@ -210,11 +225,14 @@ const MOS_GMIN = 1e-12;
 export function mosParams(e: Extract<Element, { kind: "M" }>) {
   const K = e.K ?? MOS_DEFAULTS.K;
   const Vth = e.Vth ?? MOS_DEFAULTS.Vth;
-  return { K, Vth };
+  const lambda = e.lambda ?? 0;
+  return { K, Vth, lambda };
 }
 
 /** NMOS-form companion at (vgs, vds). Returns I_D (into drain) and the
- *  partials w.r.t. V_GS and V_DS. */
+ *  partials w.r.t. V_GS and V_DS. With λ > 0, saturation picks up a
+ *  (1 + λ·V_DS) factor — channel-length modulation — which gives the
+ *  device a finite output conductance g_ds = λ·I_D / (1 + λ·V_DS). */
 export function mosCompanion(vgs: number, vds: number, p: ReturnType<typeof mosParams>) {
   const vov = vgs - p.Vth; // overdrive
   let I_D: number;
@@ -226,15 +244,16 @@ export function mosCompanion(vgs: number, vds: number, p: ReturnType<typeof mosP
     gm = 0;
     gds = 0;
   } else if (vds < vov) {
-    // Triode
+    // Triode — λ doesn't apply here (channel still attached to drain)
     I_D = p.K * (vov * vds - 0.5 * vds * vds);
     gm = p.K * vds;
     gds = p.K * (vov - vds);
   } else {
-    // Saturation
-    I_D = 0.5 * p.K * vov * vov;
-    gm = p.K * vov;
-    gds = 0;
+    // Saturation with optional channel-length modulation
+    const cm = 1 + p.lambda * vds;
+    I_D = 0.5 * p.K * vov * vov * cm;
+    gm = p.K * vov * cm;
+    gds = 0.5 * p.K * vov * vov * p.lambda;
   }
   return { I_D, gm, gds };
 }

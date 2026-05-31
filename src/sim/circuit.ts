@@ -85,6 +85,11 @@ export type Element =
       betaR?: number;
       Cpi?: number;
       Cmu?: number;
+      /** Early voltage in volts. Models base-width modulation: the forward
+       *  current picks up a factor (1 − V_BC/V_A), giving the BJT a finite
+       *  small-signal output resistance r_o = V_A / I_C in forward active.
+       *  Omit or set to Infinity for the ideal "horizontal" output. */
+      VA?: number;
     }
   /** Shichman–Hodges (SPICE Level-1) MOSFET. Terminals are drain / gate /
    *  source (body tied to source). `polarity: "nmos" | "pmos"`. Three
@@ -109,6 +114,11 @@ export type Element =
       Cgs?: number;
       Cgd?: number;
       Cds?: number;
+      /** Channel-length modulation coefficient (V⁻¹). Saturation current
+       *  picks up a factor (1 + λ·V_DS), giving the MOSFET a finite
+       *  small-signal output resistance r_o = 1 / (λ·I_D). Default 0 = the
+       *  textbook "flat" saturation. */
+      lambda?: number;
     };
 
 export interface Circuit {
