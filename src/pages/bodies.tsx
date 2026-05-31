@@ -4058,6 +4058,217 @@ void loop() {
       </ul>
     </>
   ),
+  "c-ov2640": () => (
+    <>
+      <h2>What it is</h2>
+      <p>
+        OmniVision's 2-megapixel CMOS image sensor and ISP, launched 2006 and somehow still the default "give an MCU
+        a camera" chip in 2026. A 1632 × 1232 active pixel array (UXGA), an on-die image signal processor that does
+        white balance / gamma / sharpness / colour conversion / scaling, a JPEG encoder block, a parallel <strong>
+        DVP</strong> (Digital Video Port) output, and a 2-wire <strong>SCCB</strong> control interface that's
+        essentially I²C with one undocumented behavioural difference. Sells for ~$2 as a bare module with an M12
+        lens mount.
+      </p>
+      <p>
+        You almost never solder the OV2640 directly. The standard delivery vehicle is a small "camera-module" PCB
+        — six wires across the bottom edge, a 24-pin FPC ribbon up top, and an M12 lens screwed on. That's what
+        the ESP32-CAM, the ESP-EYE, the Arducam Mini, and a thousand AliExpress IP-camera boards all carry.
+      </p>
+      <h2>Datasheet at a glance</h2>
+      <SpecTable
+        rows={[
+          [<>V<sub>DD-A</sub> (analog)</>, "2.5 – 3.0 V (typically 2.8 V from an LDO on the module)"],
+          [<>V<sub>DD-C</sub> (core)</>, "1.2 – 1.3 V (LDO on the module)"],
+          [<>V<sub>DD-IO</sub></>, "1.7 – 3.3 V (matches your MCU's I/O voltage)"],
+          [<>I<sub>DD</sub></>, "~60 mA active, ~600 µA standby"],
+          ["Active array", "1632 × 1232 pixels (~2 MP UXGA)"],
+          ["Output formats", "RGB565 / RGB555 / YUV422 / YUV420 / Y-only / JPEG / Raw Bayer"],
+          ["Output sizes (auto-scaled)", "UXGA 1600×1200, SXGA 1280×1024, SVGA 800×600, VGA 640×480, QVGA 320×240, QQVGA 160×120, plus CIF/QCIF"],
+          ["Max frame rate", "15 fps @ UXGA, 30 fps @ SVGA, 60 fps @ CIF"],
+          ["JPEG quality", "Adjustable Q-table, ~5:1 to 30:1 compression"],
+          ["Interface", "8/10-bit DVP parallel + SCCB control"],
+          ["SCCB address", "0x30 (read 0x61, write 0x60 — left-shifted by 1 in the I²C convention)"],
+          ["Lens mount", "M12 × 0.5 thread, 6-pin FPC or 24-pin FPC connector"],
+        ]}
+      />
+      <h2>The mechanism — CMOS image sensors in one paragraph</h2>
+      <p>
+        Each pixel is a photodiode (a reverse-biased pn junction) that accumulates charge proportional to the photons
+        hitting it during an integration window. In a CMOS sensor (vs CCD), each pixel also has its own readout
+        transistor and amplifier; the array is addressed like RAM, one row at a time. The OV2640 layers a Bayer-pattern
+        colour filter array (RGGB) over the photodiodes — half the pixels see only green, a quarter only red, a quarter
+        only blue — and the on-die ISP performs <strong>demosaicing</strong> to reconstruct RGB at every pixel
+        location. After demosaic the ISP does white balance, gamma, colour matrix, edge sharpening, and finally either
+        emits the bitmap or hands it to the JPEG encoder.
+      </p>
+      <Callout label="// rolling shutter">
+        The OV2640 reads one row at a time from top to bottom — a <strong>rolling shutter</strong>. The bottom of an
+        image is exposed milliseconds after the top. Fast-moving objects come out skewed (the iconic "rolling shutter
+        wobble" on helicopter blades). For motion you want a global-shutter sensor (OV9281 / OV7251), which costs ~10×
+        as much.
+      </Callout>
+      <h2>The DVP parallel interface</h2>
+      <p>
+        Most modern camera sensors use MIPI CSI-2 (serial differential pairs at gigabit rates), but the OV2640 still
+        uses the older parallel "Digital Video Port" — 8 data wires plus three clocks. Total: 11 high-speed signals,
+        plus the 2-wire SCCB for control. This is a lot of pins, which is why the OV2640 lives on chips with a
+        dedicated camera peripheral (ESP32's DVP block, RP2040's PIO, STM32's DCMI) rather than bit-banging.
+      </p>
+      <SpecTable
+        rows={[
+          ["D0–D7", "8 data bits, one byte per pixel-clock edge"],
+          ["PCLK (Pixel Clock)", "Output from the sensor — sample D0-D7 on its rising edge. Up to 36 MHz"],
+          ["HREF / HSYNC", "High during the active part of each row, low during horizontal blanking"],
+          ["VSYNC", "Goes high once per frame — the frame-start sync"],
+          ["XCLK (External Clock)", "Master clock IN — typically 20 MHz from the MCU or an oscillator. The sensor PLLs up from this"],
+          ["RESET", "Active-low reset. Pull HIGH to run, pulse LOW to force a register reset"],
+          ["PWDN", "Power down. Pull LOW for normal operation, HIGH to suspend the analog blocks"],
+        ]}
+      />
+      <h2>SCCB — almost I²C but not quite</h2>
+      <p>
+        OmniVision's "Serial Camera Control Bus" is electrically and protocol-ly nearly identical to I²C — same start/
+        stop conditions, same byte format, same address+register+data structure — but with one footgun:{" "}
+        <strong>SCCB does not require ACK</strong> on the master's transmitted bytes. Some chips (the OV2640
+        specifically) tolerate I²C masters that wait for ACK; others go silent or repeat bytes if they see one. The
+        ESP32's hardware I²C handles this fine in master-write mode; the RP2040's Synopsys block needs a workaround.
+      </p>
+      <p>
+        Configuration happens by writing 8-bit register addresses + 8-bit values. The OV2640 has hundreds of
+        registers and the datasheet doesn't document most of them; the canonical config sequence is a 100+ line
+        magic-number register dump captured from OmniVision's reference firmware. Every camera driver carries this
+        table in a header file labelled something like <code>ov2640_settings.h</code>.
+      </p>
+      <h2>Wiring an OV2640 to an ESP32-CAM</h2>
+      <p>
+        The ESP32-CAM board (AI-Thinker, Espressif) carries an ESP32-S WROOM module, an OV2640 in a 24-pin FPC slot,
+        an SD-card socket, a high-current LED, and almost no GPIO left over. The DVP signals are routed internally;
+        you only ever see the result through ESP32's camera driver:
+      </p>
+      <CodeBlock
+        language="cpp"
+        filename="esp32_cam_capture.ino"
+        code={`// Arduino-ESP32 with the esp32-camera component (bundled in the framework)
+#include "esp_camera.h"
+
+// Pin map for the AI-Thinker ESP32-CAM (board variants differ — check yours)
+#define PWDN_GPIO_NUM     32
+#define RESET_GPIO_NUM    -1
+#define XCLK_GPIO_NUM      0
+#define SIOD_GPIO_NUM     26   // SCCB SDA
+#define SIOC_GPIO_NUM     27   // SCCB SCL
+#define Y9_GPIO_NUM       35
+#define Y8_GPIO_NUM       34
+#define Y7_GPIO_NUM       39
+#define Y6_GPIO_NUM       36
+#define Y5_GPIO_NUM       21
+#define Y4_GPIO_NUM       19
+#define Y3_GPIO_NUM       18
+#define Y2_GPIO_NUM        5
+#define VSYNC_GPIO_NUM    25
+#define HREF_GPIO_NUM     23
+#define PCLK_GPIO_NUM     22
+
+void setup() {
+  Serial.begin(115200);
+  camera_config_t c = {};
+  c.ledc_channel = LEDC_CHANNEL_0;
+  c.ledc_timer   = LEDC_TIMER_0;
+  c.pin_d0 = Y2_GPIO_NUM;  c.pin_d1 = Y3_GPIO_NUM;
+  c.pin_d2 = Y4_GPIO_NUM;  c.pin_d3 = Y5_GPIO_NUM;
+  c.pin_d4 = Y6_GPIO_NUM;  c.pin_d5 = Y7_GPIO_NUM;
+  c.pin_d6 = Y8_GPIO_NUM;  c.pin_d7 = Y9_GPIO_NUM;
+  c.pin_xclk = XCLK_GPIO_NUM;
+  c.pin_pclk = PCLK_GPIO_NUM;
+  c.pin_vsync = VSYNC_GPIO_NUM;
+  c.pin_href  = HREF_GPIO_NUM;
+  c.pin_sscb_sda = SIOD_GPIO_NUM;
+  c.pin_sscb_scl = SIOC_GPIO_NUM;
+  c.pin_pwdn  = PWDN_GPIO_NUM;
+  c.pin_reset = RESET_GPIO_NUM;
+  c.xclk_freq_hz = 20000000;          // 20 MHz to the sensor
+  c.pixel_format = PIXFORMAT_JPEG;    // sensor compresses on-die
+  c.frame_size   = FRAMESIZE_SVGA;    // 800×600, 30 fps capable
+  c.jpeg_quality = 12;                // 0–63, lower = higher quality
+  c.fb_count     = 2;                 // double-buffered in PSRAM
+  esp_camera_init(&c);
+}
+
+void loop() {
+  camera_fb_t *fb = esp_camera_fb_get();
+  if (!fb) { Serial.println("capture failed"); return; }
+  Serial.printf("got JPEG, %u bytes (%dx%d)\\n", fb->len, fb->width, fb->height);
+  // send fb->buf over Wi-Fi, save to SD, decode, etc.
+  esp_camera_fb_return(fb);
+  delay(1000);
+}`}
+      />
+      <h2>Memory: why this needs PSRAM</h2>
+      <p>
+        A raw RGB565 SVGA frame is 800 × 600 × 2 = 960 KB. UXGA is 3.84 MB. The ESP32's internal SRAM is 520 KB total,
+        not nearly enough — which is why the ESP32-CAM board has a 4 or 8 MB <strong>PSRAM</strong> chip on the back.
+        The camera driver allocates frame buffers in PSRAM and the JPEG encoder runs from there. <strong>Without
+        PSRAM, the OV2640 driver caps at QVGA (320 × 240) in JPEG mode and silently fails at larger sizes</strong>.
+        If you're designing your own board, the PSRAM line is non-optional.
+      </p>
+      <h2>Other OmniVision sensors worth knowing</h2>
+      <Compare
+        header={["", "Resolution", "Notable"]}
+        rows={[
+          ["OV7670 / OV7725", "640×480 (VGA)", "1990s-vintage. No on-die JPEG. Cheap, hard to drive — only use if forced"],
+          ["OV2640", "1600×1200 (UXGA)", "This page. On-die JPEG, the ESP32-CAM default"],
+          ["OV3660", "2048×1536 (QXGA)", "3 MP successor. Drop-in for OV2640 in ESP32 driver"],
+          ["OV5640", "2592×1944 (QSXGA)", "5 MP, on-die autofocus VCM driver. Used in better ESP32-S3-CAM modules"],
+          ["OV7251 / OV9281", "0.3 / 1 MP global shutter", "Mono only. The right sensor for SLAM / drone vision"],
+        ]}
+      />
+      <h2>Gotchas</h2>
+      <ul>
+        <li>
+          <strong>The OV2640 needs PSRAM for anything above QVGA in JPEG mode.</strong> Already flagged but the
+          single most common "my ESP32-CAM only shows tiny pictures" question on every maker forum. Confirm PSRAM
+          is detected at boot — the driver prints it.
+        </li>
+        <li>
+          <strong>The 24-pin FPC connector is fragile.</strong> The latch is plastic, the contacts are 0.5 mm pitch.
+          Lift the latch fully before inserting the ribbon, and double-check the contact-side orientation. Inserted
+          backwards and the camera reports "all white" or doesn't enumerate at all.
+        </li>
+        <li>
+          <strong>The flash LED on the ESP32-CAM is on GPIO4, which is also the SD-card SDIO_DAT1.</strong> Use the
+          LED and the SD card and they'll fight. The fix is to drop GPIO4 from the SD card by using 1-bit SDIO mode,
+          which most camera-with-storage firmware does anyway.
+        </li>
+        <li>
+          <strong>20 MHz XCLK is the practical max on many ESP32-CAMs.</strong> The datasheet allows up to 48 MHz
+          but PCB layout, FPC length, and the lack of impedance control on cheap modules cap the reliable rate.
+          Some camera examples set XCLK to 24 MHz and report visual corruption; drop to 20 MHz.
+        </li>
+        <li>
+          <strong>Auto white balance fights you in colour-temperature-stable environments.</strong> AWB assumes the
+          scene contains a mix of colours averaging to grey. Point the camera at a solid blue wall and AWB will
+          slowly drag the white-point until the image is yellow. Lock AWB if you control the lighting.
+        </li>
+        <li>
+          <strong>The M12 lens that ships with cheap modules is terrible.</strong> Plastic, no IR-cut filter (so
+          your reds are oversaturated), low MTF. The single biggest image-quality upgrade you can make is to swap
+          the lens for a $5 glass M12 with an IR-cut. Adafruit / Arducam / Aliexpress all sell better ones.
+        </li>
+        <li>
+          <strong>SCCB writes can fail silently.</strong> Misconfigure the I²C/SCCB block and your register writes
+          just don't take — the sensor keeps using defaults, and you have no error to tell you. Always read back
+          a known register after init (the "PID/VER" pair at 0x0A / 0x0B should be 0x26 / 0x42 for OV2640) to
+          confirm the bus works.
+        </li>
+        <li>
+          <strong>Heat affects image quality.</strong> CMOS sensors get noisier and develop hot pixels as they heat
+          up. The OV2640 in an unventilated enclosure running continuous video will produce visibly worse images
+          after 5 minutes than after 5 seconds. For continuous-capture products either ventilate or accept the
+          noise floor.
+        </li>
+      </ul>
+    </>
+  ),
 };
 
 export const JournalBodies: Record<string, Body> = {

@@ -63,6 +63,7 @@ export const COMPONENTS: Component[] = [
   { type: "component", slug: "c-bme280", title: "BME280", domain: "ee", deck: "Bosch's three-in-one I²C sensor. Temperature, humidity, barometric pressure on one chip — and altitude almost for free." },
   { type: "component", slug: "c-mpu6050", title: "MPU6050", domain: "ee", deck: "6-DoF MEMS IMU on every $2 module. Three-axis accelerometer + three-axis gyroscope on one I²C die. Bring your own sensor fusion." },
   { type: "component", slug: "c-bno055", title: "BNO055", domain: "ee", deck: "Bosch's 9-DoF IMU with sensor fusion built in. Outputs quaternions and Euler angles — no Kalman filter for you to write." },
+  { type: "component", slug: "c-ov2640", title: "OV2640", domain: "ee", deck: "OmniVision's 2 MP CMOS image sensor. The chip inside every ESP32-CAM. Parallel DVP data + SCCB control on one tiny module." },
 ];
 
 export const TOOLS: Tool[] = [
