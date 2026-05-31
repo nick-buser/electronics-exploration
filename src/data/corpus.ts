@@ -61,6 +61,7 @@ export const COMPONENTS: Component[] = [
   { type: "component", slug: "c-led", title: "LED", domain: "ee", deck: "The first peripheral every engineer wires up. A pn junction that emits photons instead of heat. Get the current-limit resistor right and everything else follows." },
   { type: "component", slug: "c-pushbutton", title: "Pushbutton", domain: "ee", deck: "Two pieces of metal that touch when you press them. Add a pull-up and a debouncer and you've got reliable digital input." },
   { type: "component", slug: "c-bme280", title: "BME280", domain: "ee", deck: "Bosch's three-in-one I²C sensor. Temperature, humidity, barometric pressure on one chip — and altitude almost for free." },
+  { type: "component", slug: "c-mpu6050", title: "MPU6050", domain: "ee", deck: "6-DoF MEMS IMU on every $2 module. Three-axis accelerometer + three-axis gyroscope on one I²C die. Bring your own sensor fusion." },
 ];
 
 export const TOOLS: Tool[] = [
