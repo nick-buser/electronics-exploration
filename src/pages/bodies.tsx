@@ -2182,6 +2182,483 @@ int main(void) {
       </ul>
     </>
   ),
+  "c-nrf52840": () => (
+    <>
+      <h2>What it is</h2>
+      <p>
+        Nordic Semiconductor's flagship Bluetooth 5 / Thread / Zigbee / Matter SoC, released in 2018 and still the
+        default modern BLE chip in 2026. A <strong>single Cortex-M4F</strong> at 64 MHz with hardware floating-point, a
+        <strong> 2.4 GHz multi-protocol radio</strong> that does BLE 5, IEEE 802.15.4 (Thread / Zigbee), and Nordic's
+        own proprietary ESB protocol, <strong>native USB 2.0 FS</strong>, <strong>1 MB Flash + 256 KB RAM</strong>,
+        ARM TrustZone CryptoCell, and a peripheral set built specifically for low-power radio work. Where the ESP32 is
+        "Wi-Fi + BLE" and the RP2040 is "PIO and price," the nRF52840 is the chip you reach for when the radio link
+        matters more than anything else — sleep currents in the <strong>~1.5 µA range</strong> with the BLE stack
+        running, ~100 µA with most peripherals off but the system RAM-retained.
+      </p>
+      <p>
+        It's the silicon inside the Adafruit Feather nRF52840, the Seeed XIAO nRF52840, the SparkFun Pro nRF52840 Mini,
+        Particle Argon's coprocessor, and the <strong>nRF52840 Dongle</strong> — a $10 USB stick that's the canonical
+        "sniff Bluetooth packets" tool. Most modern BLE products you can name (smart locks, fitness trackers, AirTag
+        clones, wireless headphones at the budget end) have an nRF52840 or a sibling chip inside.
+      </p>
+      <Callout>
+        Newer options exist: the <strong>nRF5340</strong> splits the radio onto a dedicated network core for security
+        isolation, and the <strong>nRF54L</strong> / <strong>nRF54H</strong> (2024–2025) push the Cortex-M33 further
+        with BLE 5.4. For new designs Nordic is steering you toward the 54 line. But the 52840 still dominates the
+        ecosystem — every SDK example, every community guide, and every off-the-shelf module assumes it.
+      </Callout>
+      <h2>The Nordic line at a glance</h2>
+      <Compare
+        header={["", "Core", "Radio", "Sweet spot"]}
+        rows={[
+          ["nRF52832", "Cortex-M4F @ 64 MHz", "BLE 5, no 802.15.4, no USB", "Cost-optimised BLE peripherals — beacons, sensors, trackers"],
+          ["nRF52833", "Cortex-M4F @ 64 MHz", "BLE 5 + 802.15.4, no USB", "Industrial temp range. Same architecture as 52840 in a cheaper SKU"],
+          ["nRF52840", "Cortex-M4F @ 64 MHz", "BLE 5 + 802.15.4 + USB", "The workhorse. Matter, Thread, Zigbee, BLE all in one chip"],
+          ["nRF5340", "2× Cortex-M33 @ 128/64 MHz", "BLE 5.3 + 802.15.4 + DF", "App core + dedicated network core. TrustZone-isolated radio stack"],
+          ["nRF54L15", "Cortex-M33 @ 128 MHz", "BLE 5.4 + 802.15.4 + ESB", "Newer cost-down option, replaces the 52832 in new designs"],
+          ["nRF54H20", "Cortex-M33 + RISC-V VPRs", "BLE 5.4 + 802.15.4 + DECT NR+", "The flagship 2024 part — multi-core, hardware-accelerated"],
+          ["nRF9160 / 91x1", "Cortex-M33 @ 64 MHz", "LTE-M / NB-IoT + GPS", "Cellular IoT. Different SDK, different mental model"],
+          ["nRF7002", "(not an MCU)", "Wi-Fi 6 companion chip", "Add-on radio over SPI; pairs with an nRF52 or 53 host"],
+        ]}
+      />
+      <h2>Datasheet at a glance (nRF52840)</h2>
+      <SpecTable
+        rows={[
+          ["CPU", "ARM Cortex-M4F @ 64 MHz with single-precision FPU and ARMv7-M DSP instructions"],
+          ["Memory", "1 MB Flash + 256 KB SRAM. The SoftDevice (Nordic's BLE stack) eats ~120 KB Flash and ~10 KB RAM"],
+          ["GPIO", "48 GPIOs in the QFN-73 package, all on a single P0/P1 bus. Any pin can be any peripheral via PSEL"],
+          ["Radio", "2.4 GHz multi-protocol: BLE 5 (including LE Coded PHY, 2 Mbps, advertising extensions), IEEE 802.15.4, Nordic ESB"],
+          ["USB", "Full-Speed 2.0 (12 Mbps) device. No host. USB-DFU bootloader in factory ROM"],
+          ["NFC", "NFC-A tag mode (reader-emulating) built-in, 13.56 MHz. One of the few sub-$5 MCUs that ships with NFC"],
+          ["ADC", "1× 12-bit SAADC, 200 kS/s, 8 input channels. Differential mode supported"],
+          ["I²C / SPI / UART", "Up to 4× of any — selectable in software (TWIM, SPIM, UARTE — all DMA-backed)"],
+          ["PWM", "4× PWM units × 4 channels each = 16 channels. Each unit has its own clock divisor and counter top"],
+          ["I²S", "1× full-duplex master/slave for digital audio. PDM block separately for MEMS mics"],
+          ["Timers", "5× general 32-bit timers, 3× real-time counters (RTC) for low-power scheduling"],
+          ["Crypto", "ARM CryptoCell-310: AES-128, ECC, SHA-2, TRNG. The reason this chip ends up in security products"],
+          [<>V<sub>DD</sub></>, <>1.7 – 5.5 V (LDO mode), 1.7 – 3.6 V (DC-DC mode). On-die DC-DC for &lt; 5 mA Wi-Fi-class power</>],
+          ["Sleep currents", "System OFF ~0.4 µA; System ON, RAM retained ~1.5 µA; CPU running @ 64 MHz ~3.7 mA"],
+          ["Package", "QFN-73 (7×7 mm) or aQFN-94 (BGA-style, 5×5 mm). Plus the certified module options below"],
+        ]}
+      />
+      <h2>Modules and dev kits</h2>
+      <p>
+        Nobody designs an nRF52840 board from scratch unless they have to — the radio matching and certification work is
+        expensive. The pattern is to drop in a pre-certified module:
+      </p>
+      <SpecTable
+        rows={[
+          ["Raytac MDBT50Q", "The Adafruit / SparkFun favourite. ~$5 in volume. FCC, CE, IC, MIC, KC pre-cert"],
+          ["Fanstel BT840", "Higher-power variant with external PA, +8 dBm TX, longer range"],
+          ["u-blox NORA-B106", "Industrial-grade with built-in 32 MHz crystal and antenna"],
+          ["Nordic nRF52840-DK", "The dev kit. Onboard SEGGER J-Link, Arduino headers, two buttons, four LEDs"],
+          ["Nordic nRF52840 Dongle", "USB-A stick. $10. Comes with the radio-sniffer firmware for nRF Sniffer"],
+          ["Seeed XIAO nRF52840", "Postage-stamp board (21 × 17 mm). USB-C, charge IC for LiPo, popular for wearables"],
+          ["Adafruit Feather nRF52840 Express", "Feather form factor, USB-C, charge IC, on-board QSPI flash for filesystem"],
+        ]}
+      />
+      <h2>The PPI: peripherals talking to each other</h2>
+      <p>
+        The signature Nordic feature, and what separates this chip from a stock Cortex-M4 design. PPI stands for{" "}
+        <strong>Programmable Peripheral Interconnect</strong> — a 32-channel crossbar that lets any peripheral{" "}
+        <em>event</em> (timer compare, GPIO edge, radio packet received, ADC sample ready) directly trigger any
+        peripheral <em>task</em> (start a timer, toggle a GPIO, transmit a radio packet, kick off an ADC sample). No
+        CPU involvement, no interrupt latency, no jitter. Set up a channel once at boot and the peripherals run their
+        own state machine while the M4 sleeps.
+      </p>
+      <p>
+        A classic example: sample the SAADC at exactly 1 kHz with sub-µs jitter, without an interrupt.
+      </p>
+      <CodeBlock
+        language="c"
+        filename="ppi_adc_sampling.c"
+        code={`// Hook TIMER0's COMPARE[0] EVENT to SAADC's SAMPLE TASK.
+// Every time the timer hits its compare value, the ADC samples — at
+// hardware precision, with zero CPU work after setup.
+NRF_TIMER0->PRESCALER = 4;                     // 16 MHz / 2^4 = 1 MHz tick
+NRF_TIMER0->CC[0]     = 1000;                  // compare every 1000 µs
+NRF_TIMER0->SHORTS    = TIMER_SHORTS_COMPARE0_CLEAR_Msk;  // auto-restart
+NRF_TIMER0->TASKS_START = 1;
+
+NRF_PPI->CH[0].EEP = (uint32_t)&NRF_TIMER0->EVENTS_COMPARE[0];
+NRF_PPI->CH[0].TEP = (uint32_t)&NRF_SAADC->TASKS_SAMPLE;
+NRF_PPI->CHENSET   = (1 << 0);                  // enable channel 0`}
+      />
+      <p>
+        Combined with the EasyDMA peripherals (every SPI / I²C / UART / SAADC on the 52840 has its own DMA engine), the
+        CPU can sleep for 99% of a frame while the radio, ADC, and storage all do their work in parallel and the PPI
+        ties them together. This is what gets the sleep currents into the µA range.
+      </p>
+      <h2>Pin assignment is software, not hardware</h2>
+      <p>
+        Unlike the STM32's AF mux or the ESP32's GPIO matrix, Nordic peripherals use <strong>PSEL registers</strong>:
+        every UART / SPI / I²C / PWM block has a register where you write the GPIO pin number you want it to use, and
+        it routes itself there. Any peripheral on any pin — no precomputed mux table, no remap restrictions.
+      </p>
+      <CodeBlock
+        language="c"
+        filename="uart_pinout.c"
+        code={`// Put UART0's TX on P0.06, RX on P0.08 — pick anything
+NRF_UARTE0->PSEL.TXD = (0 << UARTE_PSEL_TXD_PORT_Pos) | 6;
+NRF_UARTE0->PSEL.RXD = (0 << UARTE_PSEL_TXD_PORT_Pos) | 8;
+NRF_UARTE0->BAUDRATE = UARTE_BAUDRATE_BAUDRATE_Baud115200;
+NRF_UARTE0->ENABLE   = UARTE_ENABLE_ENABLE_Enabled;`}
+      />
+      <p>
+        On the 52840 the GPIOs span two ports (P0 and P1), each with up to 32 pins. The PSEL byte encodes both: high
+        bit = port, low 5 bits = pin within the port. The downside of this freedom is that <em>there's no convention</em>
+        — every dev kit lays out its UART and SPI pins differently, so the pin numbers in someone else's example almost
+        never match your board.
+      </p>
+      <h2>The SoftDevice: how Nordic ships their BLE stack</h2>
+      <p>
+        Most BLE SoCs hide their radio stack in ROM or in a vendor binary you link against. Nordic does something
+        weirder and (after you adapt to it) better: the radio stack lives in flash as a separate{" "}
+        <strong>"SoftDevice"</strong> — a precompiled, signed blob you flash to the bottom of memory before your app.
+        Your application sits above it and calls into it through a stable API surface, with interrupt priorities
+        partitioned so the SoftDevice always pre-empts your code for radio events.
+      </p>
+      <SpecTable
+        rows={[
+          ["S140 (current)", "Bluetooth 5 central + peripheral, multi-link. The default for nRF52840"],
+          ["S113", "Peripheral-only. Smaller — ~30 KB instead of S140's ~120 KB"],
+          ["S132", "BLE 5 for nRF52832/833. Same API as S140, slimmed for the smaller-memory chips"],
+          ["S112", "Peripheral-only for nRF52832 and below"],
+        ]}
+      />
+      <Callout label="// memory map">
+        Flash layout on a fresh 52840 with S140 v7: <strong>0x00000–0x27000</strong> SoftDevice, then your bootloader,
+        then your application up to 1 MB. RAM: <strong>0x20000000–0x2000BFFC</strong> reserved for SoftDevice scratch
+        and ATT table, app gets the rest. Misalign these and the chip resets the moment the radio touches an active
+        connection — the linker script that ships with the SDK has them right; don't fight it.
+      </Callout>
+      <p>
+        Newer Nordic SDKs (the Zephyr-based <strong>nRF Connect SDK</strong>) treat the SoftDevice as one of several
+        radio stack options, with <strong>SoftDevice Controller</strong> (the lower half of the SoftDevice as a
+        standalone library) being the path Nordic is steering everyone toward.
+      </p>
+      <h2>Toolchains</h2>
+      <Compare
+        header={["", "What it is", "Use when"]}
+        rows={[
+          [
+            "nRF Connect SDK (NCS)",
+            "Nordic's current first-party platform. Zephyr RTOS + SoftDevice Controller + west tool",
+            "All new designs. Required for nRF53/54 and recommended for everything else from 2022 on",
+          ],
+          [
+            "nRF5 SDK (legacy)",
+            "The pre-2020 SDK. Bare-metal C with SoftDevice binaries, no RTOS",
+            "Existing legacy projects. Nordic still maintains it for 52-series but no new features",
+          ],
+          [
+            "Arduino-Adafruit nRF52 Core",
+            "Adafruit's Arduino fork bundling Bluefruit LE library on top of the Nordic SoftDevice",
+            "Adafruit Feather boards, fast prototyping, basic BLE peripheral / central roles",
+          ],
+          [
+            "Zephyr (upstream)",
+            "The RTOS that NCS is built on. Direct use bypasses Nordic's defaults but unlocks the full Zephyr ecosystem",
+            "Multi-vendor projects, when you need a peripheral driver Nordic hasn't wrapped",
+          ],
+          [
+            "CircuitPython",
+            "Adafruit's runtime, ported to the nRF52840 with a BLE library",
+            "Classrooms, BLE prototypes you can edit in a text editor on the USB drive",
+          ],
+        ]}
+      />
+      <h2>Programming and debugging — SEGGER J-Link + DFU</h2>
+      <p>
+        Two delivery paths, depending on how the board exposes the chip:
+      </p>
+      <ol>
+        <li>
+          <strong>SWD via J-Link.</strong> Every Nordic dev kit ships with an onboard SEGGER J-Link that exposes itself
+          as both a debugger and a USB drive ("MBED" style). The drive accepts <code>.hex</code> drops — copy the file
+          on, it flashes. Command-line: <code>nrfjprog</code> from Nordic's command-line tools, or <code>JLinkExe</code>.
+        </li>
+        <li>
+          <strong>USB DFU.</strong> Boards without an onboard debugger (Feather, XIAO, Dongle) ship with a USB DFU
+          bootloader. Double-tap the reset button — onboard LED pulses — chip reappears as a USB DFU device. Push your
+          firmware with <code>adafruit-nrfutil</code> (Adafruit's fork) or <code>nrfutil</code> (Nordic's official).
+        </li>
+      </ol>
+      <CodeBlock
+        language="text"
+        filename="flash.sh"
+        code={`# Path 1: J-Link / nrfjprog (DK boards, custom boards with SWD pins exposed)
+nrfjprog --recover                              # unlock chip + erase
+nrfjprog --program app_with_softdevice.hex --verify --reset
+
+# Path 2: USB DFU (Feather, XIAO, Dongle, anything with the Adafruit bootloader)
+adafruit-nrfutil --verbose dfu serial \\
+  -pkg firmware.zip -p /dev/ttyACM0 -b 115200
+
+# Path 3: Nordic Connect Programmer GUI for "I just want to drag and drop"
+nrfconnect                                       # launches the desktop app
+
+# Serial monitor on the USB CDC interface
+miniterm.py /dev/ttyACM0 115200`}
+      />
+      <Callout label="// the J-Link license">
+        The onboard J-Link on Nordic dev kits is licensed only for use with Nordic targets. SEGGER ships an "Educational"
+        firmware that works on any chip for personal projects, but the dev kit J-Links specifically refuse to attach
+        to non-Nordic SoCs. If you want a general-purpose programmer, get a standalone J-Link EDU Mini ($20) or use the
+        nRF Connect SDK's <code>pyocd</code> path with a CMSIS-DAP probe.
+      </Callout>
+      <h2>Hello world over USB-CDC, three ways</h2>
+      <CodeBlock
+        language="c"
+        filename="main.c (nRF Connect SDK / Zephyr)"
+        code={`#include <zephyr/kernel.h>
+#include <zephyr/drivers/gpio.h>
+#include <zephyr/usb/usb_device.h>
+
+#define LED0 DT_ALIAS(led0)
+static const struct gpio_dt_spec led = GPIO_DT_SPEC_GET(LED0, gpios);
+
+int main(void) {
+    usb_enable(NULL);                            // brings up CDC ACM; printf goes here
+    gpio_pin_configure_dt(&led, GPIO_OUTPUT_INACTIVE);
+
+    uint32_t t = 0;
+    while (1) {
+        printk("uptime: %u ms\\n", t);
+        gpio_pin_toggle_dt(&led);
+        k_msleep(500);
+        t += 500;
+    }
+    return 0;
+}`}
+      />
+      <CodeBlock
+        language="cpp"
+        filename="hello.ino (Adafruit nRF52 Arduino)"
+        code={`#include <bluefruit.h>
+
+void setup() {
+  Serial.begin(115200);              // USB-CDC at virtual 115200
+  while (!Serial) delay(10);          // wait for host enumeration
+  pinMode(LED_BUILTIN, OUTPUT);
+  Bluefruit.begin();                  // bring up SoftDevice + advertise as nameless peripheral
+  Bluefruit.setName("nRF52840 hello");
+  Bluefruit.Advertising.start();
+}
+
+void loop() {
+  Serial.printf("uptime: %lu ms\\n", millis());
+  digitalToggle(LED_BUILTIN);
+  delay(500);
+}`}
+      />
+      <CodeBlock
+        language="python"
+        filename="code.py (CircuitPython)"
+        code={`# Drop onto the CIRCUITPY USB drive. Reboot. Done.
+import time
+import board, digitalio
+from adafruit_ble import BLERadio
+
+led = digitalio.DigitalInOut(board.LED)
+led.direction = digitalio.Direction.OUTPUT
+radio = BLERadio()
+radio.name = "nrf52840 hello"
+radio.start_advertising()
+
+t0 = time.monotonic_ns()
+while True:
+    print("uptime:", (time.monotonic_ns() - t0) // 1_000_000, "ms")
+    led.value = not led.value
+    time.sleep(0.5)`}
+      />
+      <h2>Peripherals and their realistic ceilings</h2>
+      <SpecTable
+        rows={[
+          [
+            "UART (UARTE)",
+            <>
+              4× DMA-backed. Standard baud rates from 1200 to <strong>1 Mbaud</strong>, with the high-speed mode
+              reaching <strong>1 Mbaud</strong> reliably and <strong>~5 Mbaud</strong> at the chip limit on direct-pin
+              setups.
+            </>,
+          ],
+          [
+            "I²C (TWIM)",
+            <>
+              4× DMA-backed. <strong>100 kHz</strong>, <strong>250 kHz</strong>, <strong>400 kHz</strong> in hardware;
+              software can squeeze the bus to 1 MHz but Nordic doesn't certify it.
+            </>,
+          ],
+          [
+            "SPI (SPIM)",
+            <>
+              4× DMA-backed, plus an additional high-speed <strong>SPIM3</strong> that reaches{" "}
+              <strong>32 MHz</strong>. The other three top out at 8 MHz.
+            </>,
+          ],
+          [
+            "SAADC",
+            <>
+              1× 12-bit SAR at <strong>200 kS/s</strong>, 8 input channels, programmable gain, single-ended or
+              differential. The on-die V<sub>DD</sub>-divided-by-5 reference is the cleanest path; external precision
+              references require an extra pin.
+            </>,
+          ],
+          [
+            "PWM",
+            <>
+              4× PWM units, 4 channels each = 16 outputs total. Each unit has its own clock divisor — you can run a
+              fast unit at 1 MHz for LED dimming while another sits at 50 Hz for servo control.
+            </>,
+          ],
+          [
+            "USB",
+            <>
+              Full-Speed (12 Mbps) device only. TinyUSB ships with the nRF Connect SDK; HID / CDC / MSC classes are
+              one Kconfig flag away.
+            </>,
+          ],
+          [
+            "Radio (BLE 5)",
+            <>
+              1 Mbps, 2 Mbps, and <strong>125 kbps / 500 kbps Coded PHY</strong> (BLE long-range mode). +8 dBm max TX
+              power, −95 dBm sensitivity. ~600 µA average for a 100 ms connection interval at 0 dBm.
+            </>,
+          ],
+          [
+            "Radio (802.15.4)",
+            <>
+              250 kbps at 2.4 GHz, the physical layer underneath Thread, Zigbee, and Matter-over-Thread.
+            </>,
+          ],
+          [
+            "NFC",
+            <>
+              13.56 MHz tag mode (NFC-A). Used for "tap to pair" handoff to BLE, where the smartphone tap reads the
+              BLE address out of the NFC tag and skips the discovery dance.
+            </>,
+          ],
+        ]}
+      />
+      <h2>Wiring a BLE GATT service in Zephyr</h2>
+      <p>
+        The framework Nordic actually uses now. The pattern is to declare a GATT service as a static struct and let
+        Zephyr's BLE host wire up the characteristics; you only write the read / write / notify callbacks.
+      </p>
+      <CodeBlock
+        language="c"
+        filename="ble_temp.c"
+        code={`#include <zephyr/bluetooth/bluetooth.h>
+#include <zephyr/bluetooth/gatt.h>
+#include <zephyr/bluetooth/uuid.h>
+
+#define TEMP_SVC_UUID  BT_UUID_DECLARE_16(0x181A)        // Environmental Sensing
+#define TEMP_CHR_UUID  BT_UUID_DECLARE_16(0x2A6E)        // Temperature, °C × 100, int16
+
+static int16_t temp_centi = 2050;
+
+static ssize_t read_temp(struct bt_conn *c, const struct bt_gatt_attr *a,
+                         void *buf, uint16_t len, uint16_t off) {
+    return bt_gatt_attr_read(c, a, buf, len, off, &temp_centi, sizeof temp_centi);
+}
+
+BT_GATT_SERVICE_DEFINE(temp_svc,
+    BT_GATT_PRIMARY_SERVICE(TEMP_SVC_UUID),
+    BT_GATT_CHARACTERISTIC(TEMP_CHR_UUID,
+        BT_GATT_CHRC_READ | BT_GATT_CHRC_NOTIFY,
+        BT_GATT_PERM_READ, read_temp, NULL, &temp_centi),
+    BT_GATT_CCC(NULL, BT_GATT_PERM_READ | BT_GATT_PERM_WRITE));
+
+int main(void) {
+    bt_enable(NULL);
+    static const struct bt_data adv[] = {
+        BT_DATA_BYTES(BT_DATA_FLAGS, BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR),
+        BT_DATA_BYTES(BT_DATA_UUID16_ALL, 0x1A, 0x18),     // 0x181A little-endian
+    };
+    bt_le_adv_start(BT_LE_ADV_CONN_NAME, adv, ARRAY_SIZE(adv), NULL, 0);
+    while (1) { k_msleep(1000); }
+}`}
+      />
+      <p>
+        Side-load the <em>nRF Connect</em> app on your phone, scan, connect, and the temperature characteristic shows
+        up under "Environmental Sensing." That's the entire "talk to a sensor over BLE" example in ~30 lines.
+      </p>
+      <h2>Power: where this chip actually shines</h2>
+      <p>
+        The interesting number isn't "what does it draw when running" but "what does it draw between radio events."
+        Real-world numbers for a BLE peripheral with a 1-second connection interval, 0 dBm TX:
+      </p>
+      <SpecTable
+        rows={[
+          ["CPU running, 64 MHz, no radio", "~3.7 mA"],
+          ["BLE peripheral, 1 s conn interval, 0 dBm TX", "~7 µA average"],
+          ["BLE peripheral, 100 ms conn interval, 0 dBm TX", "~250 µA average"],
+          ["System ON, RAM retained, RTC running (waiting on a wake)", "~1.5 µA"],
+          ["System OFF (GPIO/NFC wake only)", "~0.4 µA"],
+          ["+8 dBm TX peak", "~16 mA for ~150 µs per packet"],
+        ]}
+      />
+      <Callout label="// the DC-DC matters">
+        These currents assume the DC-DC converter is enabled. Out of reset the chip uses an LDO, which costs ~25%
+        extra. Enable DC-DC mode with one register write at boot:{" "}
+        <code>NRF_POWER-&gt;DCDCEN = 1;</code> — but only if your board has the matching 10 nH / 1 µF inductor +
+        cap on the DCC pin. Forgetting this is the #1 reason "my coin-cell battery lasts half as long as Nordic says
+        it should."
+      </Callout>
+      <h2>Gotchas</h2>
+      <ul>
+        <li>
+          <strong>SoftDevice memory placement is fragile.</strong> The SoftDevice owns specific RAM ranges and specific
+          interrupt priorities. If your app's linker script doesn't match the SoftDevice version, the chip resets the
+          moment a radio event fires. Symptoms: connects, runs for a few ms, faults. Cause: <code>RAM_START</code> in
+          your linker script isn't past <code>APP_RAM_BASE</code>. Fix: re-read the SDK's "Resource Requirements" PDF
+          and update the linker script (or use the nRF Connect SDK's auto-computed values).
+        </li>
+        <li>
+          <strong>NFC pins double as GPIO.</strong> P0.09 and P0.10 default to NFC mode at first boot. If your board
+          uses them as regular GPIO, you must clear <code>NFCPINS</code> in UICR (a one-time-programmable register).
+          Symptom: button on P0.09 reads as floating. Fix: <code>nrfjprog --memwr 0x1000120C --val 0xFFFFFFFE</code>{" "}
+          and reset.
+        </li>
+        <li>
+          <strong>Reset pin is also GPIO P0.18.</strong> By default this pin is general GPIO and there's no reset pin
+          — recovery via <code>nrfjprog --recover</code> is your safety net. To get a hardware reset pin, set the
+          <code>PSELRESET</code> UICR registers. Symptom on a bricked board with both done wrong: J-Link can't attach.
+          Fix: <code>nrfjprog --recover</code>, which uses the AP-CTRL bus to force-erase.
+        </li>
+        <li>
+          <strong>The SAADC has a sample-and-hold capacitor that needs settling time.</strong> If you set the acquisition
+          time too short for your source impedance, you'll see your previous channel's reading bleed into the current
+          one. Rule of thumb: <strong>5 µs minimum acquisition time for any source impedance under 10 kΩ</strong>; for
+          higher source impedances use the <code>NRF_SAADC-&gt;CH[].CONFIG.TACQ</code> field to give it 40 µs.
+        </li>
+        <li>
+          <strong>Only one of UARTE/TWIM/SPIM per peripheral slot.</strong> The four EasyDMA blocks (0/1/2/3) each
+          contain a TWIM, SPIM, and UARTE that share the same DMA engine. You can use any one, but not two
+          simultaneously on the same slot. Pick UART0 for the console and you can't have I²C0 at the same time —
+          move I²C to slot 1.
+        </li>
+        <li>
+          <strong>The DC-DC inductor placement matters.</strong> Already flagged. If you enable DC-DC mode without the
+          external L/C network, the chip is fine but the power draw doesn't drop — and you've spent footprint area
+          on nothing. Worse, if you have the L/C network but don't enable DC-DC, the inductor saturates.
+        </li>
+        <li>
+          <strong>The Nordic GPIO drive strength is high by default.</strong> Standard GPIO can sink/source up to
+          5 mA per pin; "high drive" mode pushes that to 15 mA. Useful for driving a small load directly but
+          devastating for PCB ground bounce and EMC if you toggle a wide bus at full speed. Slow your IO down
+          (<code>NRF_GPIO-&gt;PIN_CNF[n].DRIVE</code>) for anything you don't need fast.
+        </li>
+        <li>
+          <strong>Module antennas hate ground plane changes.</strong> Pre-certified modules ship with a tuned antenna
+          that assumes a specific copper keep-out under the module's antenna area. Your PCB's ground plane bleeding
+          into that zone detunes the antenna and costs you 10+ dB. Read the module datasheet's "PCB layout guideline"
+          page and copy the keep-out exactly.
+        </li>
+      </ul>
+    </>
+  ),
   "c-1n4148": () => (
     <>
       <h2>What it is</h2>

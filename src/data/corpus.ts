@@ -50,6 +50,7 @@ export const COMPONENTS: Component[] = [
   { type: "component", slug: "c-esp32", title: "ESP32", domain: "firmware", deck: "Dual-core Xtensa + Wi-Fi + BLE. The default 'connected thing' MCU." },
   { type: "component", slug: "c-rp2040", title: "RP2040", domain: "firmware", deck: "Raspberry Pi's dual M0+ with programmable IO. Cheap, well-documented, weird in pleasant ways." },
   { type: "component", slug: "c-stm32", title: "STM32 family", domain: "firmware", deck: "The industrial standard for ARM Cortex-M. Heavy docs, every peripheral you've heard of." },
+  { type: "component", slug: "c-nrf52840", title: "nRF52840", domain: "firmware", deck: "Nordic's BLE 5 / Thread / Zigbee workhorse. Cortex-M4F with the radio Bluetooth Classic forgot." },
   { type: "component", slug: "c-ad8232", title: "AD8232", domain: "bio", deck: "Single-lead ECG analog front-end. Right-leg drive, instrumentation amp, the works." },
   { type: "component", slug: "c-drv8323", title: "DRV8323", domain: "ee", deck: "3-phase smart gate driver. The chip behind credible field-oriented BLDC control." },
   { type: "component", slug: "c-ads1299", title: "ADS1299", domain: "bio", deck: "8-channel 24-bit Σ-Δ ADC built for EEG. Low-noise, high-impedance, the heart of OpenBCI." },
