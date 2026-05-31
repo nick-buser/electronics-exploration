@@ -903,10 +903,27 @@ void loop() {
       <p>
         The high-pass corner at the bottom comes from C<sub>in</sub> looking into the parallel combination of the bias
         divider and r<sub>π</sub> ≈ β·V<sub>T</sub>/I<sub>E</sub>. Drop C<sub>in</sub> by a decade and watch the corner
-        translate right by a decade. The flat midband is approximately −R<sub>C</sub> / (R<sub>E</sub> + r<sub>e</sub>) —
-        the same gain the transient demo gives. There's no high-frequency rolloff because this BJT model has no parasitic
-        capacitance (no C<sub>π</sub>, no Miller C<sub>μ</sub>); a real 2N3904 starts rolling off around the f<sub>T</sub>
-        / β corner, a few MHz with these biases.
+        translate right by a decade. The flat midband is approximately −R<sub>C</sub> / (R<sub>E</sub> + r<sub>e</sub>) — the
+        same gain the transient demo gives.
+      </p>
+      <h2>The upper rolloff is the Miller effect</h2>
+      <p>
+        The high-frequency corner at the top of the plot is what kills wideband BJT amplifiers, and it almost never lives at
+        the part's f<sub>T</sub>. It lives at the base, where the small base-collector capacitance C<sub>μ</sub> gets
+        magnified by the voltage gain: looking into the base, that ~4 pF cap behaves like a much larger cap of value{" "}
+        <code>C_μ · (1 + g_m·R_C)</code> — the <strong>Miller effect</strong>. Add the intrinsic C<sub>π</sub> and you're
+        driving roughly a nanofarad to ground through whatever source impedance lives in front of the base. With a 1 kΩ
+        source and R<sub>π</sub> in parallel, the pole lands somewhere in the hundreds-of-kHz range.
+      </p>
+      <Callout label="// math">
+        f<sub>upper</sub> ≈ 1 / (2π · R<sub>S</sub>&apos; · (C<sub>π</sub> + C<sub>μ</sub>·(1 + g<sub>m</sub>·R<sub>C</sub>)))
+      </Callout>
+      <p>
+        Slide C<sub>μ</sub> up in the demo above and the upper corner drops fast — multiplied by gain, every extra picofarad
+        of feedback cap costs you bandwidth. Bring C<sub>μ</sub> down to zero and the upper rolloff is dominated entirely by
+        C<sub>π</sub> and the input impedance. Bring R<sub>C</sub> down and the Miller multiplier shrinks, pushing the corner
+        right. Every cascode, every common-base, every bandwidth trick in the analog playbook exists to neutralise this one
+        picofarad-times-gain product.
       </p>
       <h2>Gotchas</h2>
       <ul>

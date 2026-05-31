@@ -105,6 +105,21 @@ export function solveAc(
     }
   }
 
+  // Parasitic capacitances on nonlinear devices — frequency-domain stamp
+  // is a pure jωC admittance between the two terminals. Independent of
+  // bias point (we use constant cap values), so this happens whether or
+  // not an op-point was supplied.
+  for (const e of circuit.elements) {
+    if (e.kind === "Q") {
+      if (e.Cpi && e.Cpi > 0) stampY(A, nodes, e.b, e.e, cx(0, omega * e.Cpi));
+      if (e.Cmu && e.Cmu > 0) stampY(A, nodes, e.b, e.c, cx(0, omega * e.Cmu));
+    } else if (e.kind === "M") {
+      if (e.Cgs && e.Cgs > 0) stampY(A, nodes, e.g, e.s, cx(0, omega * e.Cgs));
+      if (e.Cgd && e.Cgd > 0) stampY(A, nodes, e.g, e.d, cx(0, omega * e.Cgd));
+      if (e.Cds && e.Cds > 0) stampY(A, nodes, e.d, e.s, cx(0, omega * e.Cds));
+    }
+  }
+
   // Nonlinear elements: linearise around the DC operating point. Each
   // element's Newton-companion Jacobian IS its small-signal admittance
   // matrix at the bias. The Jacobian terms go into the complex MNA matrix;

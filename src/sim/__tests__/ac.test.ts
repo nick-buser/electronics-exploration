@@ -191,6 +191,69 @@ describe("AC small-signal at operating point", () => {
   });
 });
 
+describe("Parasitic capacitances on nonlinear devices", () => {
+  it("BJT Cπ + Cμ add a high-frequency rolloff to the common-emitter amp (Miller effect)", () => {
+    // Same circuit as the existing CE test, but the BJT now carries
+    // parasitic Cπ = 30 pF and Cμ = 4 pF. The Miller-multiplied cap at
+    // the base creates an upper pole in the kHz–MHz range.
+    const build = (cpi: number, cmu: number): Circuit => ({
+      elements: [
+        { kind: "V", id: "vcc", a: "vcc", b: "gnd", wave: { kind: "dc", value: 9 } },
+        { kind: "R", id: "rb1", a: "vcc", b: "base", value: 47000 },
+        { kind: "R", id: "rb2", a: "base", b: "gnd", value: 10000 },
+        { kind: "V", id: "vs", a: "vin", b: "gnd", wave: { kind: "dc", value: 0 } },
+        // Add some source impedance so the input pole isn't dominated by
+        // a zero-Ω drive — makes the Miller cap actually matter.
+        { kind: "R", id: "rs", a: "vin", b: "cin_in", value: 1000 },
+        { kind: "C", id: "cin", a: "cin_in", b: "base", value: 10e-6 },
+        { kind: "R", id: "rc", a: "vcc", b: "coll", value: 3300 },
+        { kind: "R", id: "re", a: "emit", b: "gnd", value: 470 },
+        { kind: "Q", id: "q1", polarity: "npn", c: "coll", b: "base", e: "emit", Cpi: cpi, Cmu: cmu },
+      ],
+    });
+    const bare = build(0, 0);
+    const withCaps = build(30e-12, 4e-12);
+
+    // Midband: both should agree (caps are negligible at low frequency)
+    const midBare = abs(solveAc(bare, 10e3, { vs: { mag: 1 } }).v.coll);
+    const midWith = abs(solveAc(withCaps, 10e3, { vs: { mag: 1 } }).v.coll);
+    expect(midWith).toBeGreaterThan(midBare * 0.95);
+    expect(midWith).toBeLessThan(midBare * 1.05);
+
+    // High frequency: parasitic-cap version should be substantially lower
+    // (Miller cap dominates at the base). At 10 MHz, capped version is
+    // clearly below midband (the Miller pole has kicked in); bare version
+    // stays flat because the model has no parasitics.
+    const hiBare = abs(solveAc(bare, 10e6, { vs: { mag: 1 } }).v.coll);
+    const hiWith = abs(solveAc(withCaps, 10e6, { vs: { mag: 1 } }).v.coll);
+    expect(hiBare).toBeGreaterThan(midBare * 0.9); // bare version still flat
+    expect(hiWith).toBeLessThan(midWith * 0.5); // capped version visibly rolled off
+  });
+
+  it("MOSFET Cgd transitions the drain from gm·R_D gain to cap-follower at high freq", () => {
+    // Common-source-like driver with Cgd between gate and drain. At low
+    // freq, the drain swings by gm·R_D times the gate perturbation
+    // (transistor action). At very high freq, Cgd looks like a wire from
+    // gate to drain — the cap pulls drain toward the gate, so |V_drain|
+    // moves toward |V_gate| = 1 V regardless of gm.
+    const c: Circuit = {
+      elements: [
+        { kind: "V", id: "vdd", a: "vdd", b: "gnd", wave: { kind: "dc", value: 5 } },
+        { kind: "V", id: "vgg", a: "gate", b: "gnd", wave: { kind: "dc", value: 3 } },
+        { kind: "R", id: "rd", a: "vdd", b: "drain", value: 50 },
+        { kind: "M", id: "m1", polarity: "nmos", d: "drain", g: "gate", s: "gnd", Cgd: 10e-12 },
+      ],
+    };
+    const lo = solveAc(c, 1, { vgg: { mag: 1 } });
+    const hi = solveAc(c, 1e9, { vgg: { mag: 1 } });
+    // Low freq: drain phasor magnitude is gm·R_D · 1 V (several volts)
+    expect(abs(lo.v.drain)).toBeGreaterThan(2);
+    // High freq: cap dominates, drain follows gate (~1 V phasor)
+    expect(abs(hi.v.drain)).toBeGreaterThan(0.5);
+    expect(abs(hi.v.drain)).toBeLessThan(1.5);
+  });
+});
+
 describe("AC analysis — op-amp configurations", () => {
   it("ideal voltage follower has unity gain at any frequency", () => {
     const c: Circuit = {
