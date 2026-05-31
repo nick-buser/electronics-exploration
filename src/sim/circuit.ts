@@ -65,7 +65,13 @@ export type Element =
   /** Ebers–Moll BJT (injection model). Terminals are collector / base /
    *  emitter. `polarity: "npn" | "pnp"`. In NPN forward active, V_BE > 0
    *  and the device sinks current at the collector. PNP is the mirror.
-   *  Defaults model a 2N3904-ish NPN. */
+   *  Defaults model a 2N3904-ish NPN.
+   *
+   *  Parasitic capacitances `Cpi` (base-emitter) and `Cmu` (base-collector)
+   *  are stamped as constant linear caps when set. In transient analysis
+   *  they use the same implicit-Euler companion as a regular C; in AC they
+   *  contribute jωC admittance. Omit them and the device is treated as
+   *  parasitic-free (fine for low-frequency work). */
   | {
       kind: "Q";
       id: string;
@@ -77,11 +83,18 @@ export type Element =
       Vt?: number;
       betaF?: number;
       betaR?: number;
+      Cpi?: number;
+      Cmu?: number;
     }
   /** Shichman–Hodges (SPICE Level-1) MOSFET. Terminals are drain / gate /
    *  source (body tied to source). `polarity: "nmos" | "pmos"`. Three
    *  regions: cutoff (V_GS_eff < 0), triode (V_DS < V_GS_eff), saturation
-   *  (V_DS ≥ V_GS_eff). Defaults model a 2N7000-ish NMOS. */
+   *  (V_DS ≥ V_GS_eff). Defaults model a 2N7000-ish NMOS.
+   *
+   *  Parasitic capacitances `Cgs`, `Cgd`, `Cds` are stamped as constant
+   *  linear caps when set. Same warm-start trick as the BJT — the device
+   *  already tracks V_GS and V_DS for Newton, so the cap companion has
+   *  its "previous voltage" for free. */
   | {
       kind: "M";
       id: string;
@@ -93,6 +106,9 @@ export type Element =
       K?: number;
       /** Threshold voltage. */
       Vth?: number;
+      Cgs?: number;
+      Cgd?: number;
+      Cds?: number;
     };
 
 export interface Circuit {

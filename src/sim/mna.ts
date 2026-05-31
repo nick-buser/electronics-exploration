@@ -561,6 +561,23 @@ function solveOneIteration(
     stampBjtTerminal(A, z, state.nodes, e.c, e.b, e.c, e.e, comp.I_C, comp.dIC_dVBE, comp.dIC_dVBC, vbe, vbc, s);
     stampBjtTerminal(A, z, state.nodes, e.b, e.b, e.c, e.e, comp.I_B, comp.dIB_dVBE, comp.dIB_dVBC, vbe, vbc, s);
     stampBjtTerminal(A, z, state.nodes, e.e, e.b, e.c, e.e, comp.I_E, comp.dIE_dVBE, comp.dIE_dVBC, vbe, vbc, s);
+    // Parasitic caps (linear). Cπ between b–e, Cμ between b–c. Previous
+    // voltage comes from the BJT's existing per-step state (NPN convention,
+    // multiplied by polarity sign to recover the physical V_BE / V_BC).
+    if (isFinite(dt)) {
+      if (e.Cpi && e.Cpi > 0) {
+        const G = e.Cpi / dt;
+        stampConductance(A, state.nodes, e.b, e.e, G);
+        const vPrev = s * (state.bjtVbe.get(e.id) ?? 0);
+        stampCurrent(z, state.nodes, e.b, e.e, G * vPrev);
+      }
+      if (e.Cmu && e.Cmu > 0) {
+        const G = e.Cmu / dt;
+        stampConductance(A, state.nodes, e.b, e.c, G);
+        const vPrev = s * (state.bjtVbc.get(e.id) ?? 0);
+        stampCurrent(z, state.nodes, e.b, e.c, G * vPrev);
+      }
+    }
   }
 
   // MOSFET companions (Newton). Same sign-flip dance for PMOS.
@@ -578,6 +595,27 @@ function solveOneIteration(
     // Always-on drain–source shunt so a fully cut-off channel doesn't
     // leave the matrix singular.
     stampConductance(A, state.nodes, e.d, e.s, MOS_GMIN);
+    // Parasitic caps. V_GD = V_GS - V_DS, derived from the two state
+    // iterates we already keep around.
+    if (isFinite(dt)) {
+      const vgsPrev = s * (state.mosVgs.get(e.id) ?? 0);
+      const vdsPrev = s * (state.mosVds.get(e.id) ?? 0);
+      if (e.Cgs && e.Cgs > 0) {
+        const G = e.Cgs / dt;
+        stampConductance(A, state.nodes, e.g, e.s, G);
+        stampCurrent(z, state.nodes, e.g, e.s, G * vgsPrev);
+      }
+      if (e.Cgd && e.Cgd > 0) {
+        const G = e.Cgd / dt;
+        stampConductance(A, state.nodes, e.g, e.d, G);
+        stampCurrent(z, state.nodes, e.g, e.d, G * (vgsPrev - vdsPrev));
+      }
+      if (e.Cds && e.Cds > 0) {
+        const G = e.Cds / dt;
+        stampConductance(A, state.nodes, e.d, e.s, G);
+        stampCurrent(z, state.nodes, e.d, e.s, G * vdsPrev);
+      }
+    }
   }
 
   const x = solveLinear(A, z);
