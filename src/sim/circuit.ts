@@ -51,7 +51,13 @@ export type Element =
   /** Shockley diode. Anode = a, cathode = b. Forward current flows a → b.
    *  I_D = Is · (exp(V_D / (N·Vt)) − 1). All three model params default to a
    *  1N4148-ish profile so most circuits can omit them. `ic` seeds the
-   *  Newton iterate at t=0; transient analysis tracks V_D across steps. */
+   *  Newton iterate at t=0; transient analysis tracks V_D across steps.
+   *
+   *  Junction (depletion) capacitance is voltage-dependent in real diodes
+   *  and is the basis of varactor tuning. When `Cj0` is set, the device
+   *  contributes a cap C_j(V_D) = Cj0 / (1 − V_D/Vj)^Mj for V_D < FC·Vj,
+   *  linearised above that to avoid the singularity at V_D = Vj. Defaults:
+   *  Vj = 0.75 V, Mj = 0.5 (abrupt junction), FC = 0.5. */
   | {
       kind: "D";
       id: string;
@@ -61,6 +67,10 @@ export type Element =
       Vt?: number;
       N?: number;
       ic?: number;
+      Cj0?: number;
+      Vj?: number;
+      Mj?: number;
+      FC?: number;
     }
   /** Ebers–Moll BJT (injection model). Terminals are collector / base /
    *  emitter. `polarity: "npn" | "pnp"`. In NPN forward active, V_BE > 0

@@ -20,6 +20,7 @@ import { abs, add, cx, div, mul, neg, sub, type Complex, ZERO } from "./complex"
 import {
   bjtCompanion,
   bjtParams,
+  diodeCj,
   diodeCompanion,
   diodeParams,
   mosCompanion,
@@ -132,6 +133,9 @@ export function solveAc(
         const vd = bias.vd[e.id] ?? 0;
         const { Geq } = diodeCompanion(vd, Is, vtN);
         stampY(A, nodes, e.a, e.b, cx(Geq));
+        // Voltage-dependent depletion cap, frozen at the bias V_D.
+        const Cj = diodeCj(vd, e);
+        if (Cj > 0) stampY(A, nodes, e.a, e.b, cx(0, omega * Cj));
       } else if (e.kind === "Q") {
         const p = bjtParams(e);
         const s = e.polarity === "npn" ? 1 : -1;

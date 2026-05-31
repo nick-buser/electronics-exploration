@@ -6,6 +6,7 @@ import { DecouplingZDemo } from "@/circuits/DecouplingZDemo";
 import { NonInvertingAmpDemo } from "@/circuits/NonInvertingAmpDemo";
 import { ActiveLowPassDemo } from "@/circuits/ActiveLowPassDemo";
 import { RectifierDemo } from "@/circuits/RectifierDemo";
+import { VaractorTankDemo } from "@/circuits/VaractorTankDemo";
 import { CommonEmitterDemo } from "@/circuits/CommonEmitterDemo";
 import { CommonEmitterBodeDemo } from "@/circuits/CommonEmitterBodeDemo";
 import { NmosSwitchDemo } from "@/circuits/NmosSwitchDemo";
@@ -832,6 +833,30 @@ void loop() {
         the input period and the ripple shrinks; turn it down and the cap can't keep up.
       </p>
       <RectifierDemo />
+      <h2>Junction capacitance and varactors</h2>
+      <p>
+        Every pn junction has a depletion-region capacitance that varies with the voltage across it: widen the depletion
+        region by reverse-biasing the diode harder and you get fewer plates' worth of charge for the same area, so capacitance
+        falls. The SPICE-standard expression — the one this simulator uses when you set <code>Cj0</code> on a diode — is:
+      </p>
+      <Callout label="// math">
+        C<sub>j</sub>(V<sub>D</sub>) = C<sub>j0</sub> · (1 − V<sub>D</sub>/V<sub>j</sub>)<sup>−M<sub>j</sub></sup>
+        &nbsp;·&nbsp; V<sub>j</sub> ≈ 0.75 V &nbsp;·&nbsp; M<sub>j</sub> ≈ 0.5 (abrupt) or ≈ 0.33 (linearly graded)
+      </Callout>
+      <p>
+        At zero bias C = C<sub>j0</sub>; reverse-bias the diode and C shrinks as the square root of (1 + V/V<sub>j</sub>) for
+        the abrupt-junction default. Forward-bias past V<sub>D</sub> ≈ V<sub>j</sub>/2 and the model linearises (otherwise the
+        formula heads to infinity at V<sub>D</sub> = V<sub>j</sub>). For a 1N4148 the parameter is small — about 4 pF at zero
+        bias — and ordinary circuits don't notice. <strong>Varactor</strong> diodes (BB910, MV209, 1SV149, etc.) are
+        designed to maximise this effect: tens or hundreds of picofarads at zero bias, with grading optimised to give a wide
+        capacitance tuning ratio across a few volts of reverse bias.
+      </p>
+      <p>
+        The demo below puts a varactor in parallel with an inductor (10 µH default) and reads off the parallel-tank impedance
+        peak. Push V<sub>bias</sub> up and the peak climbs — that's a voltage-controlled oscillator's tuning element doing
+        its job. Every FM radio tuner, every PLL, every reflex klystron is built on this picture.
+      </p>
+      <VaractorTankDemo />
       <h2>Gotchas</h2>
       <ul>
         <li>

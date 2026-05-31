@@ -108,6 +108,27 @@ export function diodeParams(e: Extract<Element, { kind: "D" }>) {
   return { Is, Vt, N, vtN: N * Vt };
 }
 
+/** Voltage-dependent depletion capacitance for a pn junction.
+ *  Standard SPICE-style formula with linearisation above FC·Vj to keep
+ *  the singularity at V = Vj from blowing up. Returns 0 if Cj0 is not
+ *  set on the element. */
+export function diodeCj(
+  vd: number,
+  e: Extract<Element, { kind: "D" }>,
+): number {
+  if (!e.Cj0 || e.Cj0 <= 0) return 0;
+  const Vj = e.Vj ?? 0.75;
+  const Mj = e.Mj ?? 0.5;
+  const FC = e.FC ?? 0.5;
+  if (vd < FC * Vj) {
+    return e.Cj0 * Math.pow(1 - vd / Vj, -Mj);
+  }
+  // SPICE linearisation: extends the cap formula smoothly past FC·Vj.
+  // C(vd) = Cj0 · (1 − FC)^(−1−Mj) · (1 − FC·(1+Mj) + Mj·vd/Vj)
+  const factor = Math.pow(1 - FC, -(1 + Mj));
+  return e.Cj0 * factor * (1 - FC * (1 + Mj) + (Mj * vd) / Vj);
+}
+
 /** Tangent-line companion: I_D ≈ G_eq · V_D + I_eq. */
 export function diodeCompanion(vd: number, Is: number, vtN: number) {
   // Clamp the exponential argument so a divergent Newton step can't blow up
@@ -564,6 +585,21 @@ function solveOneIteration(
     // forward current). That's an outflow at a and inflow at b — same sign
     // convention as stampCurrent's caller for the cap companion.
     stampCurrent(z, state.nodes, e.b, e.a, Ieq);
+    // Voltage-dependent depletion cap. Linearise the C(V_D) curve at the
+    // previous timestep's V_D — keeps the cap stamp itself linear during
+    // Newton iteration (the Newton non-linearity is already in the
+    // exponential I_D term above). Smaller dt → more accurate.
+    if (isFinite(dt)) {
+      const vdPrev = state.diodeV.get(e.id) ?? 0;
+      const Cj = diodeCj(vdPrev, e);
+      if (Cj > 0) {
+        const Gc = Cj / dt;
+        stampConductance(A, state.nodes, e.a, e.b, Gc);
+        // Cap companion: I_eq = Gc · V_prev flowing b → a externally
+        // (matches stampCurrent(z, a, b, +Ieq) for the regular C element).
+        stampCurrent(z, state.nodes, e.a, e.b, Gc * vdPrev);
+      }
+    }
   }
 
   // BJT companions (Newton). For PNP, the iterates and resulting currents
