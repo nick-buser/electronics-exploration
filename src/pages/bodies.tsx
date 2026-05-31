@@ -3393,6 +3393,223 @@ void on_1ms_tick() {                    // call from a timer ISR at 1 kHz
       </ul>
     </>
   ),
+  "c-bme280": () => (
+    <>
+      <h2>What it is</h2>
+      <p>
+        Bosch Sensortec's three-in-one environmental sensor in a 2.5 × 2.5 × 0.93 mm metal-lidded LGA-8 package:
+        <strong> temperature</strong> (±1 °C), <strong>relative humidity</strong> (±3 %), and{" "}
+        <strong>barometric pressure</strong> (±1 hPa, which translates to ~±1 m of altitude resolution). One sensor,
+        one I²C address, one library call — the default starting point for any "weather station," "air quality monitor,"
+        or "altitude logger" project. The newer BME680 / BME688 adds a VOC gas sensor for the same price; the older
+        BMP280 drops humidity to save ~30 cents. For straight T/H/P, the BME280 is still the right pick.
+      </p>
+      <p>
+        The catch is that the chip's <strong>raw output is uncalibrated</strong>. Each die ships with a per-part
+        calibration table burned into its NVM at the factory, and the temperature/humidity/pressure values you actually
+        want are computed by applying ~12 floating-point fixup polynomials to the raw reads. Every driver on the
+        planet does this for you; the math lives in the datasheet's "compensation formulas" section.
+      </p>
+      <h2>Datasheet at a glance</h2>
+      <SpecTable
+        rows={[
+          [<>V<sub>DD</sub></>, "1.71 – 3.6 V (the BME280 ships on most breakouts with an onboard LDO from 5 V)"],
+          [<>I<sub>DD</sub></>, "3.6 µA @ 1 Hz with all three sensors (humidity-only mode: ~0.1 µA in sleep)"],
+          ["Temperature range", "−40 to +85 °C operating; accuracy ±0.5 °C from 0–65 °C"],
+          ["Humidity range", "0 – 100 % RH; accuracy ±3 % RH from 20–80 %"],
+          ["Pressure range", "300 – 1100 hPa absolute (≈ Mt Everest down to −500 m below sea level)"],
+          ["Resolution", "Temperature 0.01 °C, humidity 0.008 % RH, pressure 0.18 Pa"],
+          ["Interface", "I²C up to 3.4 MHz, or 4-wire SPI up to 10 MHz — selectable by tying CSB high or low at boot"],
+          ["I²C address", <>0x76 (SDO to GND) or 0x77 (SDO to V<sub>DD</sub>). Adafruit defaults to 0x77, AliExpress modules to 0x76</>],
+          ["Response time", "Temperature τ ≈ 1.6 s, humidity τ ≈ 1 s, pressure τ ≈ tens of ms"],
+          ["Package", "LGA-8, 2.5 × 2.5 × 0.93 mm. Always on a breakout — never hand-solder the bare part"],
+        ]}
+      />
+      <h2>How each sensor works</h2>
+      <h3>Pressure — piezoresistive MEMS diaphragm</h3>
+      <p>
+        A micro-machined silicon diaphragm a few hundred microns across, etched into a Wheatstone bridge of doped
+        piezoresistors. Atmospheric pressure deflects the diaphragm by nanometres; the resistors change value
+        proportionally; the bridge converts that change into a differential voltage that the on-die 16-bit ADC samples.
+        The on-die microcontroller applies the calibration polynomial and you get a 20-bit pressure reading you can
+        convert to hPa.
+      </p>
+      <h3>Humidity — capacitive polymer film</h3>
+      <p>
+        A polymer film between two metal electrodes acts as the dielectric of a capacitor. The polymer absorbs and
+        desorbs water vapour from the surrounding air, changing its dielectric constant by ~5 % over the full 0–100 %
+        RH range. An on-die oscillator measures the capacitance against an internal reference and outputs a 16-bit
+        humidity value. Response time is dominated by how fast water diffuses in and out of the polymer — about a
+        second for a step change.
+      </p>
+      <h3>Temperature — bandgap reference</h3>
+      <p>
+        Two on-die transistors biased at different current densities have V<sub>BE</sub> values that diverge linearly
+        with absolute temperature (this is a "PTAT" — proportional-to-absolute-temperature — reference, the canonical
+        on-chip thermometer). The difference is amplified, digitised, and run through the calibration polynomial. The
+        temperature output isn't just a sensor reading on its own — it's also <strong>required</strong> to compensate
+        the pressure and humidity polynomials, so even if you only want pressure, the chip samples temperature too.
+      </p>
+      <Callout>
+        The temperature sensor is on the same die as the rest of the chip. The chip itself dissipates ~0.5 mW when
+        active, which warms the die ~0.3 °C above ambient under continuous sampling. That's why every BME280 reads
+        slightly hot when you first power it up. Use "forced mode" (one-shot sample, then sleep) instead of
+        "continuous mode" for accurate temperature.
+      </Callout>
+      <h2>Wiring</h2>
+      <p>
+        Four wires for I²C: V<sub>DD</sub>, GND, SDA, SCL. On breakout boards the LDO converts 5 V→3.3 V and a level
+        shifter handles 5 V I²C signals — perfectly safe to wire to a 5 V Arduino. For 3.3 V MCUs (ESP32, RP2040,
+        STM32, nRF52), use the 3.3 V rail directly; the 5 V input on the breakout still works, but you're spending
+        20 µA of LDO quiescent for no reason. SDA and SCL need <strong>4.7 kΩ pull-ups to 3.3 V</strong>; the breakout
+        usually has them populated already (check the silkscreen).
+      </p>
+      <SpecTable
+        rows={[
+          [<>V<sub>DD</sub></>, "3.3 V (or 5 V via the breakout's LDO)"],
+          ["GND", "Common ground"],
+          ["SDA", "Bidirectional data, 4.7 kΩ pull-up to 3.3 V"],
+          ["SCL", "Clock, 4.7 kΩ pull-up to 3.3 V"],
+          ["CSB", "Tie HIGH for I²C mode (default on every breakout). Tie LOW for SPI mode"],
+          ["SDO", "I²C address select. GND = 0x76, V_DD = 0x77. (In SPI mode, this is MISO)"],
+        ]}
+      />
+      <h2>Reading it — the canonical Arduino path</h2>
+      <CodeBlock
+        language="cpp"
+        filename="bme280_read.ino"
+        code={`#include <Wire.h>
+#include <Adafruit_Sensor.h>
+#include <Adafruit_BME280.h>
+
+Adafruit_BME280 bme;             // I²C, default speed 100 kHz
+
+void setup() {
+  Serial.begin(115200);
+  if (!bme.begin(0x76)) {        // try 0x76 first (most modules)
+    if (!bme.begin(0x77)) {      // fall back to 0x77 (Adafruit default)
+      Serial.println("BME280 not found, check wiring + address!");
+      while (1) delay(10);
+    }
+  }
+  bme.setSampling(Adafruit_BME280::MODE_FORCED,         // one-shot, then sleep
+                  Adafruit_BME280::SAMPLING_X1,         // temperature oversample
+                  Adafruit_BME280::SAMPLING_X1,         // pressure oversample
+                  Adafruit_BME280::SAMPLING_X1,         // humidity oversample
+                  Adafruit_BME280::FILTER_OFF);
+}
+
+void loop() {
+  bme.takeForcedMeasurement();   // wake → sample → sleep
+  float t = bme.readTemperature();          // °C
+  float p = bme.readPressure() / 100.0F;    // hPa
+  float h = bme.readHumidity();             // %RH
+  float alt = bme.readAltitude(1013.25F);   // m, vs sea-level 1013.25 hPa
+  Serial.printf("T=%.2fC  P=%.1fhPa  H=%.1f%%  alt=%.1fm\\n", t, p, h, alt);
+  delay(2000);
+}`}
+      />
+      <Callout label="// what's actually happening on the wire">
+        Each <code>readTemperature()</code> issues a multi-byte I²C burst from register 0xFA (the temperature MSB),
+        unpacks the 20-bit raw value, then runs it through Bosch's compensation polynomial using the calibration
+        constants the driver read at <code>begin()</code> time. The library hides all of it; the datasheet gives the
+        exact reference C code in case you want to drop the library and save ~6 KB of Flash.
+      </Callout>
+      <h2>Altitude from pressure</h2>
+      <p>
+        Atmospheric pressure drops with altitude — about 12 Pa per metre at sea level, less at higher altitudes. The
+        International Standard Atmosphere model lets you convert directly:
+      </p>
+      <Callout label="// math">
+        alt = 44330 · [ 1 − (P / P<sub>0</sub>)<sup>1/5.255</sup> ] &nbsp; (m, with P and P<sub>0</sub> in hPa)
+      </Callout>
+      <p>
+        The catch is the <strong>reference pressure P<sub>0</sub></strong>. If you use the textbook 1013.25 hPa,
+        your "altitude" is really "altitude assuming today's weather is standard," which is off by ±100 m on any
+        given day depending on the local high/low pressure system. For relative altitude (how much have I climbed
+        since I started?) calibrate P<sub>0</sub> to the local pressure at your starting elevation and the BME280
+        becomes a <strong>~1 m resolution altimeter</strong> over a 30-minute timescale. For absolute altitude, you
+        need a GPS or a network weather query for the local sea-level pressure.
+      </p>
+      <h2>Operating modes — forced vs normal</h2>
+      <SpecTable
+        rows={[
+          [
+            "Sleep mode",
+            <>Power-on default. No sampling, ~0.1 µA. Wake by writing to <code>ctrl_meas</code></>,
+          ],
+          [
+            "Forced mode",
+            <>One-shot sample on command, then back to sleep. Best accuracy (no self-heating). Use for any
+            data-logging or low-power sensor</>,
+          ],
+          [
+            "Normal mode",
+            <>Continuous sampling with a programmable standby period (0.5 ms to 1 s). Convenient for
+            real-time displays. Self-heats the die — temperature reads ~0.3 °C high</>,
+          ],
+        ]}
+      />
+      <h2>The Bosch ecosystem — when to reach for which</h2>
+      <Compare
+        header={["", "Sensors", "Notable"]}
+        rows={[
+          ["BMP280", "T + P", "Drop humidity, save ~30 ¢. Same chip, same library"],
+          ["BME280", "T + H + P", "The classic. This page"],
+          ["BME680", "T + H + P + VOC gas (R)", "Adds a hot-plate metal-oxide gas sensor — VOC index, no specific gas"],
+          ["BME688", "T + H + P + VOC + AI", "Successor with on-chip ML classifier (Bosch's BSEC2 firmware)"],
+          ["BMP388 / BMP390", "P only, ±0.08 hPa", "9× more accurate than the BME280's pressure stage. The right altimeter for drones"],
+        ]}
+      />
+      <h2>Gotchas</h2>
+      <ul>
+        <li>
+          <strong>Self-heating in continuous mode.</strong> Already flagged but the most common bug — your BME280 reads
+          3 °C too hot, you swap modules, same thing. The fix is forced mode plus a 1-second-minimum interval. If you
+          need 10 Hz temperature, accept the offset and subtract a constant.
+        </li>
+        <li>
+          <strong>The I²C address depends on the wiring of SDO.</strong> Half the modules in the world ship at 0x76,
+          the other half at 0x77. If <code>begin(0x77)</code> fails silently, try 0x76 before assuming the part is
+          dead. Code defensively: scan both addresses at boot.
+        </li>
+        <li>
+          <strong>Humidity drift after solder reflow.</strong> The polymer film absorbs moisture during humid storage
+          and reflow can drive it off. Bosch specifies a "rehydration" period of 24 hours at 25 °C / 50 % RH for
+          freshly-soldered parts before they hit datasheet accuracy. Most projects don't notice this; high-accuracy
+          ones do.
+        </li>
+        <li>
+          <strong>The pressure sensor is sensitive to wind.</strong> If you mount the sensor in an outdoor enclosure,
+          a stiff breeze across the vent hole causes ~10 Pa transients — visible as 1 m altitude noise. Either filter
+          (the BME280's IIR filter is built for this) or use a vented gore-tex membrane to slow the airflow.
+        </li>
+        <li>
+          <strong>Direct sunlight is fatal to humidity readings.</strong> The dark metal lid soaks up sunlight, the
+          die heats 10 °C above ambient, and the humidity calculation (which divides by absolute saturation pressure
+          at that temperature) gives you wildly low RH. Always shade the sensor — a Stevenson-screen-style enclosure
+          if you're outdoors.
+        </li>
+        <li>
+          <strong>SDA / SCL pull-ups are sometimes missing on cheap modules.</strong> AliExpress BME280 modules are
+          inconsistent — some have 4.7 kΩ pull-ups populated, some don't. If <code>begin()</code> hangs forever,
+          probe SCL with a scope and check whether it sits at 3.3 V when idle. If it's at 0 V, you need external
+          pull-ups.
+        </li>
+        <li>
+          <strong>SPI vs I²C is a hardware-time choice, not runtime.</strong> CSB is sampled at startup and the
+          chip locks into the chosen mode until the next reset. There's no software switch. On a breakout it's
+          almost always wired for I²C; if you want SPI you'll either need a different breakout or a soldering iron.
+        </li>
+        <li>
+          <strong>Don't trust the "compensated raw" values in the registers.</strong> The chip's output registers
+          contain <em>raw ADC</em> readings, not engineering units. You must apply the calibration polynomial
+          (Bosch's reference code is ~150 lines of C) before publishing the value. Every library does this; rolling
+          your own without the polynomial gives nonsense.
+        </li>
+      </ul>
+    </>
+  ),
 };
 
 export const JournalBodies: Record<string, Body> = {
