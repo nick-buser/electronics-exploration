@@ -69,7 +69,12 @@ export function acSweep(circuit: Circuit, opts: AcOptions): AcPoint[] {
 
 function maybeOpPoint(circuit: Circuit): StepResult | undefined {
   const hasNonlinear = circuit.elements.some(
-    (e) => e.kind === "D" || e.kind === "Q" || e.kind === "M",
+    (e) =>
+      e.kind === "D" ||
+      e.kind === "Q" ||
+      e.kind === "M" ||
+      e.kind === "SW" ||
+      e.kind === "XSCH",
   );
   return hasNonlinear ? dcOperatingPoint(circuit) : undefined;
 }
@@ -87,10 +92,12 @@ export function solveAc(
   const bias = opPoint ?? maybeOpPoint(circuit);
   const sources: Element[] = circuit.elements.filter((e) => e.kind === "V");
   const opamps: Element[] = circuit.elements.filter((e) => e.kind === "OP");
+  const schmitts: Element[] = circuit.elements.filter((e) => e.kind === "XSCH");
   const nSrc = sources.length;
   const nOp = opamps.length;
+  const nSch = schmitts.length;
   const internalN = nodes.names.length - 1;
-  const dim = internalN + nSrc + nOp;
+  const dim = internalN + nSrc + nOp + nSch;
 
   const A = zerosC(dim);
   const z = new Array<Complex>(dim).fill(ZERO).map(() => ({ ...ZERO }));
@@ -196,6 +203,29 @@ export function solveAc(
     } else {
       if (iVp > 0) A[row][iVp - 1] = add(A[row][iVp - 1], cx(1));
       if (iVm > 0) A[row][iVm - 1] = add(A[row][iVm - 1], cx(-1));
+    }
+  });
+
+  // Switches: stamp the on/off resistance frozen at the DC operating
+  // state. Latch state lives in the op-point (`bias`), so switches that
+  // were closed at DC stay closed for the whole AC sweep.
+  for (const e of circuit.elements) {
+    if (e.kind !== "SW") continue;
+    const closed = bias?.swClosed?.[e.id] ?? false;
+    const R = closed ? e.Ron ?? 1 : e.Roff ?? 1e9;
+    stampY(A, nodes, e.p, e.n, cx(1 / R));
+  }
+
+  // Schmitts: small-signal AC sees a forced V_out — i.e., the output
+  // node is held at a constant DC value, so its AC phasor is 0. Stamp
+  // with z[row] = 0 (no AC excitation from this element).
+  schmitts.forEach((e, k) => {
+    if (e.kind !== "XSCH") return;
+    const row = internalN + nSrc + nOp + k;
+    const iOut = nodes.index.get(e.out) ?? 0;
+    if (iOut > 0) {
+      A[iOut - 1][row] = add(A[iOut - 1][row], cx(1));
+      A[row][iOut - 1] = add(A[row][iOut - 1], cx(1));
     }
   });
 

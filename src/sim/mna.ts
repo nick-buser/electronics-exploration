@@ -60,6 +60,10 @@ export interface StepResult {
   /** Per-op-amp output node voltage. Used by the next transient step's
    *  finite-GBW integrator and exposed to callers for convenience. */
   vop: Record<string, number>;
+  /** Latched state of each switch: true = closed. */
+  swClosed: Record<string, boolean>;
+  /** Latched state of each Schmitt: true = output HIGH. */
+  schmittHigh: Record<string, boolean>;
   /** Time of this sample. */
   t: number;
 }
@@ -79,6 +83,10 @@ interface SolverState {
   /** Last V_out for each op-amp (only used by finite-GBW op-amps for the
    *  implicit-Euler integrator on the dominant-pole transfer function). */
   opVout: Map<string, number>;
+  /** Latch state for each voltage-controlled switch: true = closed. */
+  swClosed: Map<string, boolean>;
+  /** Latch state for each Schmitt: true = output HIGH. */
+  schmittHigh: Map<string, boolean>;
 }
 
 export interface NewtonOptions {
@@ -305,7 +313,25 @@ export function initState(circuit: Circuit): SolverState {
     }
     if (e.kind === "OP") opVout.set(e.id, 0);
   }
-  return { nodes, capV, indI, diodeV, bjtVbe, bjtVbc, mosVgs, mosVds, opVout };
+  const swClosed = new Map<string, boolean>();
+  const schmittHigh = new Map<string, boolean>();
+  for (const e of circuit.elements) {
+    if (e.kind === "SW") swClosed.set(e.id, false);
+    if (e.kind === "XSCH") schmittHigh.set(e.id, false);
+  }
+  return {
+    nodes,
+    capV,
+    indI,
+    diodeV,
+    bjtVbe,
+    bjtVbc,
+    mosVgs,
+    mosVds,
+    opVout,
+    swClosed,
+    schmittHigh,
+  };
 }
 
 /** Copy this step's reactive + nonlinear state forward as next-step ICs. */
@@ -320,6 +346,8 @@ export function advance(state: SolverState, step: StepResult): void {
   // Op-amp V_out — only matters for finite-GBW ops (the integrator pole),
   // but cheap to copy unconditionally.
   for (const [id, vop] of Object.entries(step.vop)) state.opVout.set(id, vop);
+  for (const [id, c] of Object.entries(step.swClosed)) state.swClosed.set(id, c);
+  for (const [id, h] of Object.entries(step.schmittHigh)) state.schmittHigh.set(id, h);
 }
 
 /* ── Solve ─────────────────────────────────────────────── */
@@ -362,23 +390,30 @@ export function solveStep(
     mosVdsIter.set(m.id, state.mosVds.get(m.id) ?? 0);
   }
 
-  // Outer slew loop: large-signal op-amp output is hard-capped at ±SR.
-  // We solve normally first; if any slew-rate-limited op-amp moves V_out
-  // by more than dt·SR in one step, we force V_out to slew and re-solve.
-  // The state-space (one ternary per op-amp) is small so this settles in
-  // 1–2 outer passes in practice.
+  // Outer state-flip loop: handles the binary-state elements (op-amp slew,
+  // voltage-controlled switches, Schmitt triggers). We solve normally
+  // first, check each binary state for a transition, and re-Newton if
+  // anything flipped. State spaces are small, so this settles in 1–2
+  // outer passes in practice; we cap it at 8 to be safe.
   const slewable: Extract<Element, { kind: "OP" }>[] = isFinite(dt)
     ? circuit.elements.filter(
         (e): e is Extract<Element, { kind: "OP" }> =>
           e.kind === "OP" && e.SR != null && e.SR > 0,
       )
     : [];
+  const switches = circuit.elements.filter(
+    (e): e is Extract<Element, { kind: "SW" }> => e.kind === "SW",
+  );
+  const schmittEls = circuit.elements.filter(
+    (e): e is Extract<Element, { kind: "XSCH" }> => e.kind === "XSCH",
+  );
   const opSlew = new Map<string, 1 | -1>();
-  const maxSlewOuter = slewable.length > 0 ? 4 : 1;
+  const hasBinaryState = slewable.length + switches.length + schmittEls.length > 0;
+  const maxStateOuter = hasBinaryState ? 8 : 1;
 
   let result: StepResult | null = null;
   let totalIters = 0;
-  for (let slewPass = 0; slewPass < maxSlewOuter; slewPass++) {
+  for (let slewPass = 0; slewPass < maxStateOuter; slewPass++) {
   let iters = 0;
   while (iters < maxIter) {
     result = solveOneIteration(circuit, state, t, dt, diodeIter, bjtVbeIter, bjtVbcIter, mosVgsIter, mosVdsIter, opSlew);
@@ -444,10 +479,12 @@ export function solveStep(
     throw new Error(`solveStep: Newton did not converge within ${maxIter} iters at t=${t}`);
   }
 
-  // Slew check — update opSlew based on this pass's V_out and re-Newton
-  // if any op-amp crossed into or out of its slew limit.
-  if (slewable.length === 0) break;
-  let slewChanged = false;
+  // State-flip checks — update binary states and re-Newton if anything
+  // crossed a threshold.
+  if (!hasBinaryState) break;
+  let anyFlipped = false;
+
+  // Slew (per op-amp with SR set)
   for (const op of slewable) {
     const vOutNew = result.vop[op.id] ?? 0;
     const vOutPrev = state.opVout.get(op.id) ?? 0;
@@ -463,12 +500,39 @@ export function solveStep(
     if (oldStatus !== newStatus) {
       if (newStatus === undefined) opSlew.delete(op.id);
       else opSlew.set(op.id, newStatus);
-      slewChanged = true;
+      anyFlipped = true;
     }
   }
-  if (!slewChanged) break;
+
+  // Switches: hysteretic threshold on V(cp) − V(cn)
+  for (const sw of switches) {
+    const vCtrl = (result.v[sw.cp] ?? 0) - (result.v[sw.cn] ?? 0);
+    const closed = state.swClosed.get(sw.id) ?? false;
+    let newClosed = closed;
+    if (closed && vCtrl < sw.vOff) newClosed = false;
+    else if (!closed && vCtrl > sw.vOn) newClosed = true;
+    if (newClosed !== closed) {
+      state.swClosed.set(sw.id, newClosed);
+      anyFlipped = true;
+    }
   }
-  if (!result) throw new Error("solveStep: outer slew loop produced no result");
+
+  // Schmitts: hysteretic threshold on V(in)
+  for (const sch of schmittEls) {
+    const vin = result.v[sch.in] ?? 0;
+    const high = state.schmittHigh.get(sch.id) ?? false;
+    let newHigh = high;
+    if (high && vin < sch.vThLow) newHigh = false;
+    else if (!high && vin > sch.vThHigh) newHigh = true;
+    if (newHigh !== high) {
+      state.schmittHigh.set(sch.id, newHigh);
+      anyFlipped = true;
+    }
+  }
+
+  if (!anyFlipped) break;
+  }
+  if (!result) throw new Error("solveStep: outer state-flip loop produced no result");
   void totalIters;
 
   // Recompute final element currents from the converged iterates so they
@@ -527,9 +591,10 @@ function solveOneIteration(
   const sources: Element[] = circuit.elements.filter((e) => e.kind === "V");
   const inductors: Element[] = circuit.elements.filter((e) => e.kind === "L");
   const opamps: Element[] = circuit.elements.filter((e) => e.kind === "OP");
+  const schmitts: Element[] = circuit.elements.filter((e) => e.kind === "XSCH");
   const nSrc = sources.length;
   const nInd = inductors.length;
-  const dim = internalN + nSrc + nInd + opamps.length;
+  const dim = internalN + nSrc + nInd + opamps.length + schmitts.length;
 
   const A = zeros(dim, dim);
   const z = new Array<number>(dim).fill(0);
@@ -627,6 +692,32 @@ function solveOneIteration(
       if (iVp > 0) A[row][iVp - 1] += 1;
       if (iVm > 0) A[row][iVm - 1] += -1;
     }
+  });
+
+  // Voltage-controlled switches. Stamp the on/off resistance between p/n
+  // based on the current latch state. State transitions happen in the
+  // outer state-flip loop in solveStep, not inside Newton.
+  for (const e of circuit.elements) {
+    if (e.kind !== "SW") continue;
+    const closed = state.swClosed.get(e.id) ?? false;
+    const R = closed ? e.Ron ?? 1 : e.Roff ?? 1e9;
+    stampConductance(A, state.nodes, e.p, e.n, 1 / R);
+  }
+
+  // Schmitt triggers. Output is forced to vHigh or vLow depending on the
+  // latch state. Stamp like a V source between `out` and ground with the
+  // value set by state. The branch current is an extra MNA unknown
+  // (one row+col per Schmitt, indexed after the op-amps).
+  schmitts.forEach((e, k) => {
+    if (e.kind !== "XSCH") return;
+    const row = internalN + nSrc + nInd + opamps.length + k;
+    const iOut = state.nodes.index.get(e.out) ?? 0;
+    if (iOut > 0) {
+      A[iOut - 1][row] += 1;
+      A[row][iOut - 1] += 1;
+    }
+    const high = state.schmittHigh.get(e.id) ?? false;
+    z[row] = high ? e.vHigh : e.vLow;
   });
 
   // Diode companions (Newton)
@@ -795,7 +886,36 @@ function solveOneIteration(
     }
   }
 
-  return { v, i, vc, il, iop, vop, vd, id, vbe, vbc, ic, ib, ie, vgs, vds, idmos, t };
+  // Snapshot the latch states into the result so callers can inspect
+  // and advance() can roll them forward.
+  const swClosed: Record<string, boolean> = {};
+  const schmittHigh: Record<string, boolean> = {};
+  for (const e of circuit.elements) {
+    if (e.kind === "SW") swClosed[e.id] = state.swClosed.get(e.id) ?? false;
+    if (e.kind === "XSCH") schmittHigh[e.id] = state.schmittHigh.get(e.id) ?? false;
+  }
+
+  return {
+    v,
+    i,
+    vc,
+    il,
+    iop,
+    vop,
+    vd,
+    id,
+    vbe,
+    vbc,
+    ic,
+    ib,
+    ie,
+    vgs,
+    vds,
+    idmos,
+    swClosed,
+    schmittHigh,
+    t,
+  };
 }
 
 /** Stamp one terminal of a 3-terminal device with a single-V-pair Jacobian

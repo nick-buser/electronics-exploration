@@ -569,6 +569,63 @@ export function OpAmp({
   );
 }
 
+/* ── Schmitt trigger ───────────────────────────────────── */
+
+const SCHMITT_W = 44;
+const SCHMITT_H = 32;
+
+export type SchmittPins = { in: Pt; out: Pt };
+
+export function schmittPins(at: Pt): SchmittPins {
+  return {
+    in: [at[0] - SCHMITT_W / 2, at[1]],
+    out: [at[0] + SCHMITT_W / 2, at[1]],
+  };
+}
+
+/** Schmitt trigger symbol: triangle with the canonical hysteresis glyph
+ *  inside (a tiny S-curve drawn from two small line segments). */
+export function Schmitt({ at, label }: { at: Pt; label?: string }) {
+  const left = at[0] - SCHMITT_W / 2;
+  const right = at[0] + SCHMITT_W / 2;
+  const top = at[1] - SCHMITT_H / 2;
+  const bot = at[1] + SCHMITT_H / 2;
+  // Hysteresis glyph: rectangular pulse-ish shape inside the triangle
+  const gx0 = at[0] - 8;
+  const gx1 = at[0] + 8;
+  const gy0 = at[1] - 4;
+  const gy1 = at[1] + 4;
+  return (
+    <g>
+      <polygon
+        points={`${left},${top} ${left},${bot} ${right},${at[1]}`}
+        fill="var(--color-bg)"
+        stroke={STROKE}
+        strokeWidth={STROKE_W}
+      />
+      {/* Hysteresis loop glyph */}
+      <path
+        d={`M ${gx0} ${gy1} L ${at[0] - 2} ${gy1} L ${at[0] - 2} ${gy0} L ${gx1} ${gy0}`}
+        stroke={STROKE}
+        strokeWidth={1}
+        fill="none"
+      />
+      {label && (
+        <text
+          x={at[0] + 2}
+          y={bot + 12}
+          fontFamily="var(--font-mono)"
+          fontSize={9}
+          fill={VALUE_FILL}
+          textAnchor="middle"
+        >
+          {label}
+        </text>
+      )}
+    </g>
+  );
+}
+
 /** Ground symbol at a single point. */
 export function Ground({ at }: { at: Pt }) {
   const [x, y] = at;

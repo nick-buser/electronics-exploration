@@ -135,6 +135,51 @@ export type Element =
        *  small-signal output resistance r_o = 1 / (λ·I_D). Default 0 = the
        *  textbook "flat" saturation. */
       lambda?: number;
+    }
+  /** Voltage-controlled switch with hysteresis. The terminals (`p`, `n`)
+   *  carry the current; (`cp`, `cn`) sense the control voltage. The switch
+   *  closes (resistance Ron) when V(cp)−V(cn) > Von and opens (Roff) when
+   *  V(cp)−V(cn) < Voff. Choosing Von > Voff gives hysteresis — the switch
+   *  remembers which side it's on across timesteps. */
+  | {
+      kind: "SW";
+      id: string;
+      p: string;
+      n: string;
+      cp: string;
+      cn: string;
+      vOn: number;
+      vOff: number;
+      /** Closed-state resistance (Ω). Default 1. */
+      Ron?: number;
+      /** Open-state resistance (Ω). Default 1e9. */
+      Roff?: number;
+    }
+  /** Schmitt trigger / hysteretic comparator. The latch flips into the
+   *  "HIGH" state once the input rises above `vThHigh`, and back into
+   *  the "LOW" state once it falls below `vThLow`; in the dead band it
+   *  holds. The output node is then forced to `vHigh` (HIGH state) or
+   *  `vLow` (LOW state) — a V-source-style stamp, adds one branch-
+   *  current unknown per Schmitt.
+   *
+   *  For a non-inverting Schmitt set `vHigh > vLow`. For an inverting
+   *  Schmitt (the one you want in a relaxation oscillator) set `vHigh
+   *  < vLow` — when the input crosses up past `vThHigh`, the output
+   *  drops to the smaller value, which is exactly what kicks off the
+   *  half-cycle. */
+  | {
+      kind: "XSCH";
+      id: string;
+      in: string;
+      out: string;
+      /** Upper trip point: input above this latches state to HIGH. */
+      vThHigh: number;
+      /** Lower trip point: input below this latches state to LOW. */
+      vThLow: number;
+      /** Output value when latch is in the HIGH state. */
+      vHigh: number;
+      /** Output value when latch is in the LOW state. */
+      vLow: number;
     };
 
 export interface Circuit {
@@ -157,6 +202,8 @@ export function elementNodes(e: Element): string[] {
   if (e.kind === "OP") return [e.vplus, e.vminus, e.vout];
   if (e.kind === "Q") return [e.c, e.b, e.e];
   if (e.kind === "M") return [e.d, e.g, e.s];
+  if (e.kind === "SW") return [e.p, e.n, e.cp, e.cn];
+  if (e.kind === "XSCH") return [e.in, e.out];
   return [e.a, e.b];
 }
 

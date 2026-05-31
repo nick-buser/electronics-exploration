@@ -12,6 +12,7 @@ import { CommonEmitterBodeDemo } from "@/circuits/CommonEmitterBodeDemo";
 import { NmosSwitchDemo } from "@/circuits/NmosSwitchDemo";
 import { GbwTradeoffDemo } from "@/circuits/GbwTradeoffDemo";
 import { SlewRateDemo } from "@/circuits/SlewRateDemo";
+import { RelaxationOscDemo } from "@/circuits/RelaxationOscDemo";
 import { DemoPWM } from "@/demos/DemoPWM";
 import { DemoBus } from "@/demos/DemoBus";
 import { DemoPID } from "@/demos/DemoPID";
@@ -444,6 +445,54 @@ void loop() {
           zero current. For DC-coupled high-precision work, pick a chopper-stabilised or auto-zero part.
         </li>
       </ul>
+    </>
+  ),
+  "pr-schmitt": () => (
+    <>
+      <h2>The trick: two trip points instead of one</h2>
+      <p>
+        A normal comparator has one threshold: input above it, output is HIGH; below, output is LOW. That single boundary
+        becomes a problem the moment the input has any noise on it. Approach the threshold slowly and the comparator will{" "}
+        <em>flap</em> — the output bouncing high-low-high-low for as long as the input is parked near the trip point. The
+        Schmitt trigger fixes this by having <strong>two</strong> trip points: one for going up (V<sub>TH+</sub>) and a
+        lower one for coming back down (V<sub>TH−</sub>). Once the output snaps high, you have to drop the input all the way
+        below V<sub>TH−</sub> before it can flip back. The dead band in between is the <strong>hysteresis</strong>, and it's
+        what makes the output stable in the presence of noise.
+      </p>
+      <Callout label="// math">
+        V<sub>TH+</sub> &gt; V<sub>TH−</sub> &nbsp;·&nbsp; hysteresis window = V<sub>TH+</sub> − V<sub>TH−</sub>
+        &nbsp;·&nbsp; latch holds in the dead band
+      </Callout>
+      <p>
+        The 7414 is a hex inverting Schmitt. The 555 has two of them inside, wired to the 1/3 and 2/3 V<sub>cc</sub> trip
+        points that show up in its astable formula. Op-amp comparators (LM393, LM339) become Schmitts with positive feedback
+        through two resistors. Every memoryless real-world threshold detector — line receiver, key-bounce filter, slow-edge
+        digital input — uses some flavour of this.
+      </p>
+      <h2>Relaxation oscillator</h2>
+      <p>
+        Wire the Schmitt's output back to its input through a single resistor, and put a cap at the input to ground. The
+        output (HIGH or LOW) charges the cap one direction through R. When the cap crosses the upper trip point, the output
+        flips, and the cap starts charging the other direction. Crosses the lower trip point, it flips again. Square wave at
+        the output, triangle wave at the cap — no clock, no biasing, no inductors.
+      </p>
+      <Callout label="// math">
+        T ≈ 2·R·C · ln((V<sub>swing</sub> + V<sub>hyst</sub>) / (V<sub>swing</sub> − V<sub>hyst</sub>)) &nbsp;·&nbsp;
+        for 1/3–2/3 thresholds on a V<sub>cc</sub> swing this collapses to <strong>T ≈ 1.39·R·C</strong>
+      </Callout>
+      <RelaxationOscDemo />
+      <p>
+        Drag R and C around and the period scales linearly with their product. Push V<sub>supply</sub> up and the swing grows
+        — but the period stays the same, since the threshold ratios scale with the supply too (the 1/3–2/3 cancellation in
+        the formula). That last property is why the 555's frequency depends only on R and C, not on V<sub>cc</sub>: there's a
+        Schmitt-ish hysteretic comparator pair inside doing exactly this dance.
+      </p>
+      <Callout>
+        The simulator's <code>XSCH</code> element is the building block here. It exposes vTh+/vTh− and the output values for
+        each latch state — set vHigh &lt; vLow to get the inverting polarity an oscillator needs (output drops when input
+        climbs past the upper threshold, kicking off the discharge half-cycle). Pair it with the <code>SW</code> element
+        and you have everything needed to model a 555 internally.
+      </Callout>
     </>
   ),
   "pr-i2c": () => (

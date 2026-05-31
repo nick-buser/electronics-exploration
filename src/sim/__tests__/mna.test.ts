@@ -2,6 +2,121 @@ import { describe, expect, it } from "vitest";
 import type { Circuit } from "../circuit";
 import { dcOperatingPoint, runTransient } from "../transient";
 
+describe("Voltage-controlled switch + Schmitt trigger (stateful primitives)", () => {
+  it("voltage-controlled switch has hysteresis: closes above vOn, opens below vOff", () => {
+    // 5V across a switch (in series with a 1Ω current-sense resistor) to
+    // ground. Control voltage is swept via a separate V source. The switch
+    // should stay open until V_ctrl exceeds vOn, then stay closed until
+    // V_ctrl drops below vOff.
+    const buildAtVctrl = (vCtrl: number): Circuit => ({
+      elements: [
+        { kind: "V", id: "vsupply", a: "src", b: "gnd", wave: { kind: "dc", value: 5 } },
+        { kind: "V", id: "vc", a: "ctrl", b: "gnd", wave: { kind: "dc", value: vCtrl } },
+        { kind: "R", id: "rsense", a: "src", b: "load", value: 1 },
+        {
+          kind: "SW",
+          id: "sw",
+          p: "load",
+          n: "gnd",
+          cp: "ctrl",
+          cn: "gnd",
+          vOn: 2.5,
+          vOff: 0.5,
+          Ron: 1,
+          Roff: 1e9,
+        },
+      ],
+    });
+    // 0V control: switch is open (default state), almost no current
+    const opOff = dcOperatingPoint(buildAtVctrl(0));
+    expect(opOff.v.load).toBeCloseTo(5, 3); // pulled up by R_sense
+    // 3V control: switch closes — load drops as the switch sinks current
+    const opOn = dcOperatingPoint(buildAtVctrl(3));
+    expect(opOn.v.load).toBeLessThan(3); // significant drop
+  });
+
+  it("Schmitt trigger output snaps to vHigh when input crosses vThHigh", () => {
+    const c: Circuit = {
+      elements: [
+        { kind: "V", id: "vin", a: "in", b: "gnd", wave: { kind: "dc", value: 4 } },
+        {
+          kind: "XSCH",
+          id: "u1",
+          in: "in",
+          out: "out",
+          vThHigh: 3.33,
+          vThLow: 1.67,
+          vHigh: 5,
+          vLow: 0,
+        },
+      ],
+    };
+    const op = dcOperatingPoint(c);
+    expect(op.v.out).toBeCloseTo(5, 6);
+    expect(op.schmittHigh.u1).toBe(true);
+  });
+
+  it("Schmitt trigger oscillates as a relaxation oscillator with R, C", () => {
+    // Classic relaxation oscillator: an *inverting* Schmitt drives a cap
+    // through a resistor; the cap's voltage is the Schmitt's input. When
+    // the cap charges past vThHigh, the output flips LOW and starts
+    // discharging it; cross vThLow, output flips HIGH and recharges.
+    //
+    // Inverting polarity is achieved here by setting vHigh < vLow: when
+    // the latch is in the "HIGH" state (input crossed above vThHigh),
+    // the OUTPUT we emit is the smaller value. Standard period for this
+    // topology with symmetric thresholds is 2·RC·ln((vHi+vTh)/(vHi−vTh))
+    // — for vHi=5, vThHigh=3.33, vThLow=1.67 it's ≈ 2·RC·ln(2).
+    const R = 10000;
+    const C = 100e-9;
+    const c: Circuit = {
+      elements: [
+        { kind: "C", id: "cint", a: "cap", b: "gnd", value: C, ic: 0 },
+        { kind: "R", id: "rint", a: "out", b: "cap", value: R },
+        {
+          kind: "XSCH",
+          id: "u1",
+          in: "cap",
+          out: "out",
+          vThHigh: 3.33,
+          vThLow: 1.67,
+          // Inverting: when input crosses above vThHigh (state = HIGH),
+          // output drops to vHigh=0; when input drops below vThLow
+          // (state = LOW), output rises to vLow=5.
+          vHigh: 0,
+          vLow: 5,
+        },
+      ],
+    };
+    const expectedPeriod = 2 * R * C * Math.log(2); // ≈ 1.386 ms
+    // Run for ~3 periods at a tight dt
+    const samples = runTransient(c, { duration: 5 * expectedPeriod, dt: expectedPeriod / 1000 });
+
+    // Count zero-crossings of (V_cap − midpoint = 2.5) to measure period
+    const mid = 2.5;
+    let crossings = 0;
+    let last = samples[0].v.cap - mid;
+    for (const s of samples) {
+      const cur = s.v.cap - mid;
+      if (last * cur < 0) crossings++;
+      last = cur;
+    }
+    // Over 5 periods we expect ~10 zero-crossings — but allow some range
+    // for startup (cap starts at 0, has to charge up to first threshold).
+    expect(crossings).toBeGreaterThan(6);
+    expect(crossings).toBeLessThan(14);
+
+    // Cap voltage stays bounded between the two thresholds in steady state
+    const lateSamples = samples.filter((s) => s.t > 2 * expectedPeriod);
+    const vCapMax = Math.max(...lateSamples.map((s) => s.v.cap));
+    const vCapMin = Math.min(...lateSamples.map((s) => s.v.cap));
+    expect(vCapMax).toBeGreaterThan(3.0);
+    expect(vCapMax).toBeLessThan(3.5);
+    expect(vCapMin).toBeGreaterThan(1.5);
+    expect(vCapMin).toBeLessThan(2.0);
+  });
+});
+
 describe("Op-amp slew rate", () => {
   it("voltage follower clamps dV_out/dt at +SR for a positive step", () => {
     // Buffer fed a 0 → 5V step at t=0. SR = 1 V/µs → output should ramp
