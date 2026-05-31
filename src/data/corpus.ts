@@ -66,6 +66,7 @@ export const COMPONENTS: Component[] = [
   { type: "component", slug: "c-ov2640", title: "OV2640", domain: "ee", deck: "OmniVision's 2 MP CMOS image sensor. The chip inside every ESP32-CAM. Parallel DVP data + SCCB control on one tiny module." },
   { type: "component", slug: "c-dc-motor", title: "Brushed DC motor + TB6612FNG", domain: "ee", deck: "A coil, a magnet, and a mechanical commutator. The whole drive chain: motor physics, H-bridge driver, PWM speed control, and back-EMF protection." },
   { type: "component", slug: "c-stepper", title: "Stepper motor + A4988", domain: "ee", deck: "Position control without a feedback loop. Bipolar stepper physics, microstepping, current limiting via V_REF, and the canonical step/dir interface." },
+  { type: "component", slug: "c-servo", title: "SG90 hobby servo", domain: "ee", deck: "DC motor + gearbox + potentiometer + closed-loop controller in one $2 package. Send a 1–2 ms pulse every 20 ms; get an angle." },
 ];
 
 export const TOOLS: Tool[] = [
