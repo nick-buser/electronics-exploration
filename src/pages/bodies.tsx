@@ -3831,6 +3831,233 @@ void loop() {
       </ul>
     </>
   ),
+  "c-bno055": () => (
+    <>
+      <h2>What it is</h2>
+      <p>
+        Bosch's flagship IMU and the chip you reach for when you want absolute orientation as a black-box output, not
+        a sensor fusion project. Three MEMS sensors on one substrate — a 3-axis accelerometer, a 3-axis gyroscope, and
+        a 3-axis magnetometer — plus an <strong>on-die ARM Cortex-M0</strong> running Bosch's proprietary sensor
+        fusion firmware that outputs <strong>quaternions or Euler angles directly</strong> at 100 Hz. You wire it up,
+        you read four floats over I²C, you have orientation. No Kalman filter to write, no calibration polynomials to
+        debug, no DMP firmware to side-load. That's the pitch.
+      </p>
+      <p>
+        The trade-off is power (~12 mA in full-fusion mode vs ~4 mA for the MPU6050), price (~$30 for the Adafruit
+        breakout vs $2 for a GY-521), and a famous I²C clock-stretching bug that makes the chip incompatible with
+        some MCUs without workarounds. If those don't kill it for your project, the BNO055 saves you weeks of fusion
+        work.
+      </p>
+      <h2>Datasheet at a glance</h2>
+      <SpecTable
+        rows={[
+          [<>V<sub>DD</sub></>, "2.4 – 3.6 V. The Adafruit breakout adds a 3.3 V LDO so 5 V supply works"],
+          [<>I<sub>DD</sub></>, "12.3 mA in NDOF (9-DoF + fusion), 5.7 mA in IMU mode (no compass), &lt; 40 µA suspend"],
+          ["Accelerometer", "3-axis, 14-bit, ±2 / ±4 / ±8 / ±16 g (Bosch BMA055-class)"],
+          ["Gyroscope", "3-axis, 16-bit, ±125 / ±250 / ±500 / ±1000 / ±2000 °/s"],
+          ["Magnetometer", "3-axis, 13/14-bit, ±1300 µT (X/Y) ±2500 µT (Z) — uncalibrated needs the fusion engine"],
+          ["Fusion engine", "Bosch's BSX3.0. Outputs Euler / quaternion / linear accel / gravity / heading at 100 Hz"],
+          ["Interface", "I²C (≤ 400 kHz) or UART (115200). No SPI"],
+          ["I²C address", "0x28 (ADR to GND) or 0x29 (ADR to V_DDIO)"],
+          ["Operating modes", "11 modes: config / acc-only / mag-only / gyro-only / accmag / accgyro / maggyro / amg / IMU / compass / M4G / NDOF_FMC_OFF / NDOF"],
+          ["Calibration", "Stored in NVM. Survives power cycles. Must be redone after enclosure changes that move ferrous metal"],
+          ["Package", "LGA-28, 3.8 × 5.2 × 1.13 mm"],
+        ]}
+      />
+      <h2>The fusion engine and why it matters</h2>
+      <p>
+        Sensor fusion is the process of combining accelerometer, gyroscope, and magnetometer data into a single
+        orientation estimate that's better than any one sensor alone. The MPU6050 page covers the complementary-
+        filter approach for the 6-DoF case; with magnetometer added, you need a full quaternion-based filter
+        (Madgwick, Mahony, or extended Kalman) to get absolute heading. The BNO055 runs Bosch's BSX3.0 algorithm
+        on its on-die M0 and outputs:
+      </p>
+      <SpecTable
+        rows={[
+          [
+            "Quaternion (w, x, y, z)",
+            <>4-tuple of floats, no gimbal lock, the right format for animation and motion control. Updated at 100 Hz</>,
+          ],
+          [
+            "Euler angles (roll, pitch, yaw)",
+            <>0–360° heading, ±180° roll/pitch. Easy to read, suffers gimbal lock when pitch nears ±90°</>,
+          ],
+          [
+            "Linear acceleration",
+            <>Acceleration with gravity <em>subtracted</em>. What you actually want for dead-reckoning / step
+            counting / motion classification</>,
+          ],
+          [
+            "Gravity vector",
+            <>The direction of gravity in chip coordinates — the part the fusion subtracted out of linear accel</>,
+          ],
+          [
+            "Calibration status",
+            <>Per-sensor 0–3 score. Read this before trusting the heading</>,
+          ],
+        ]}
+      />
+      <h2>Wiring</h2>
+      <SpecTable
+        rows={[
+          [<>V<sub>IN</sub> / V<sub>DD</sub></>, "3.3 V or 5 V (module-dependent — Adafruit breakout has an LDO)"],
+          ["GND", "Common ground"],
+          ["SDA", "I²C data, 4.7 kΩ pull-up to 3.3 V"],
+          ["SCL", "I²C clock, 4.7 kΩ pull-up to 3.3 V"],
+          ["ADR", "Address select. GND = 0x28, V_DD = 0x29"],
+          ["INT", "Optional interrupt out — motion-detected, no-motion, etc."],
+          ["RST", "Active-low reset. Pull HIGH for normal use; pulse LOW to force a clean reboot"],
+          ["PS0 / PS1", "Protocol select. PS0 = 0, PS1 = 0 → I²C (the default). 0/1 → UART"],
+        ]}
+      />
+      <h2>The 11 operating modes</h2>
+      <p>
+        The BNO055 has a startling number of modes because the fusion algorithm has different power / accuracy
+        trade-offs depending on which sensors you actually want fused. The headline modes:
+      </p>
+      <SpecTable
+        rows={[
+          [
+            "CONFIG",
+            "The power-on default. Sensors off, registers writable. You spend ~0 seconds here in normal use",
+          ],
+          [
+            "ACCONLY / MAGONLY / GYROONLY",
+            "Single-sensor passthrough — no fusion. Use if you're after raw sensor data for your own algorithm",
+          ],
+          [
+            "IMU (acc + gyro fusion)",
+            "6-DoF fusion. Relative orientation, no compass. 5.7 mA",
+          ],
+          [
+            "COMPASS",
+            "Magnetometer + accelerometer. Tilt-compensated compass heading. Doesn't use the gyro",
+          ],
+          [
+            "M4G",
+            <>Magnetometer-aided gyro. Falls back to mag heading when the gyro drifts. Lower power than full NDOF</>,
+          ],
+          [
+            "NDOF_FMC_OFF",
+            "9-DoF fusion without Fast Magnetic Calibration. Use when the environment has stable magnetic interference",
+          ],
+          [
+            "NDOF",
+            "The headline mode. Full 9-DoF fusion + auto-calibration of the magnetometer. ~12 mA, 100 Hz output",
+          ],
+        ]}
+      />
+      <h2>Reading orientation</h2>
+      <CodeBlock
+        language="cpp"
+        filename="bno055_quat.ino"
+        code={`#include <Adafruit_Sensor.h>
+#include <Adafruit_BNO055.h>
+
+Adafruit_BNO055 bno(55, 0x28);
+
+void setup() {
+  Serial.begin(115200);
+  if (!bno.begin()) {
+    Serial.println("BNO055 not found at 0x28");
+    while (1) delay(10);
+  }
+  bno.setExtCrystalUse(true);    // use the breakout's 32.768 kHz crystal — better fusion
+}
+
+void loop() {
+  imu::Quaternion q = bno.getQuat();
+  imu::Vector<3> e = bno.getVector(Adafruit_BNO055::VECTOR_EULER);
+  imu::Vector<3> a = bno.getVector(Adafruit_BNO055::VECTOR_LINEARACCEL);
+
+  uint8_t sys, gyro, accel, mag;
+  bno.getCalibration(&sys, &gyro, &accel, &mag);
+
+  Serial.printf("q=(%+.3f,%+.3f,%+.3f,%+.3f)  euler=(%.1f,%.1f,%.1f) lin_a=(%+.2f,%+.2f,%+.2f) cal=%d/%d/%d/%d\\n",
+                q.w(), q.x(), q.y(), q.z(),
+                e.x(), e.y(), e.z(),
+                a.x(), a.y(), a.z(),
+                sys, gyro, accel, mag);
+  delay(100);
+}`}
+      />
+      <h2>Calibration — the dance</h2>
+      <p>
+        The fusion algorithm needs to know each sensor's bias and scale. The BNO055 auto-calibrates as it sees motion,
+        but you have to <strong>give it the motion</strong>. The Adafruit recommended procedure:
+      </p>
+      <ol>
+        <li>
+          <strong>Gyro</strong>: hold the device perfectly still for 3 seconds. Score goes 0 → 3 once it sees a steady
+          zero rotation.
+        </li>
+        <li>
+          <strong>Accelerometer</strong>: slowly rotate the device through six orientations (each axis up and down for
+          ~2 seconds each). The fusion algorithm fits a sphere to the readings.
+        </li>
+        <li>
+          <strong>Magnetometer</strong>: a slow figure-8 in the air, sweeping all axes through every direction. ~10
+          seconds. Same sphere-fit math, different sensor.
+        </li>
+      </ol>
+      <p>
+        The chip auto-saves the calibration into NVM. On the next power-up the offsets are restored — and if the
+        environment is unchanged, you're at full calibration immediately. <strong>Move the device to a different room
+        or onto a steel desk and you have to re-calibrate the magnetometer</strong>, which is the chip's most fragile
+        leg.
+      </p>
+      <h2>Gotchas</h2>
+      <ul>
+        <li>
+          <strong>I²C clock-stretching bug.</strong> The famous one. The BNO055 stretches SCL low for ~600 µs during
+          some internal operations. Most MCU I²C blocks handle this fine, but the ESP32's hardware I²C (especially the
+          older arduino-esp32 versions) does not — it times out and returns an error. Workaround: drop to bit-banged
+          I²C, or use Hugo Pristauz's <code>i2c_bno055</code> patched driver, or switch to the UART interface
+          (115200 8N1, no flow control, set PS1=1).
+        </li>
+        <li>
+          <strong>Magnetometer interference is everywhere.</strong> The fusion engine assumes a stable magnetic
+          field. A speaker, a motor, a steel desk — anything ferrous within ~10 cm — pulls the heading. Symptom:
+          slow yaw drift in a fixed direction whenever you're near the offending object. Mitigation: physically
+          separate the sensor from anything magnetic, or use M4G / NDOF_FMC_OFF modes if the environment is fixed.
+        </li>
+        <li>
+          <strong>The calibration is per-environment.</strong> Calibrate in your office, then take the device home,
+          and the magnetometer cal is wrong (different local magnetic field, different ferrous metal nearby). For
+          field-deployed products, expose a "recalibrate" button or run continuous mag auto-calibration even after
+          the initial fit.
+        </li>
+        <li>
+          <strong>Switching modes always goes via CONFIG.</strong> The driver writes <code>OPR_MODE = CONFIG</code>,
+          waits 19 ms, then writes the new mode. If you forget the wait, the mode change silently fails. Use the
+          library — don't poke registers directly unless you read the datasheet's mode-change timing diagram.
+        </li>
+        <li>
+          <strong>Euler vs quaternion vs axis conventions.</strong> The BNO055 outputs Euler angles in degrees,
+          ZYX intrinsic rotations (yaw-pitch-roll). The quaternion output is in the chip's "P0" axis convention,
+          which doesn't match most aerospace conventions. There's a <code>setAxisRemap()</code> call to fix it, but
+          if your "yaw" rotates the wrong direction or your "roll" is actually pitch, this is why.
+        </li>
+        <li>
+          <strong>The on-die M0 is opaque firmware.</strong> Bosch ships a closed-source fusion blob; bugs (heading
+          flipping 180°, calibration-score oscillation, occasional gyro stuck-at-zero) are reported in the wild and
+          can't be fixed at the user level. Bosch issues firmware updates rarely. For high-reliability projects,
+          plan around this — open-source fusion on a 6-DoF chip might be the more durable choice.
+        </li>
+        <li>
+          <strong>External crystal makes a real difference.</strong> Without the optional 32.768 kHz crystal, the
+          fusion runs on the chip's internal RC oscillator, which drifts and degrades the timing-sensitive parts of
+          the algorithm. Every reputable breakout has a crystal — make sure <code>setExtCrystalUse(true)</code> is
+          called.
+        </li>
+        <li>
+          <strong>If you don't actually need absolute heading, consider a 6-DoF chip.</strong> The MPU6050 / ICM-
+          20948 / LSM6DSOX are smaller, cheaper, lower-power. The BNO055's value is the magnetometer fusion. If your
+          project only needs relative orientation (gimbal, balancing robot, head tracking), the BNO055 is overkill.
+        </li>
+      </ul>
+    </>
+  ),
 };
 
 export const JournalBodies: Record<string, Body> = {
