@@ -338,6 +338,93 @@ describe("Early effect and channel-length modulation", () => {
   });
 });
 
+describe("Varactor — voltage-dependent diode junction capacitance", () => {
+  it("at zero bias C(V_D=0) = Cj0", () => {
+    const Cj0 = 100e-12;
+    // Diode tied directly across a small AC source so the bias is 0V.
+    // |Z_AC| at 1 MHz = 1 / (ω·Cj0) ≈ 1.59 kΩ.
+    const c: Circuit = {
+      elements: [
+        { kind: "V", id: "vs", a: "cath", b: "gnd", wave: { kind: "dc", value: 0 } },
+        { kind: "D", id: "d1", a: "gnd", b: "cath", Cj0, Vj: 0.75, Mj: 0.5 },
+      ],
+    };
+    const ac = solveAc(c, 1e6, { vs: { mag: 1 } });
+    const z = impedanceFromSource(ac, "vs");
+    const cMeasured = 1 / (2 * Math.PI * 1e6 * abs(z));
+    expect(cMeasured).toBeGreaterThan(Cj0 * 0.95);
+    expect(cMeasured).toBeLessThan(Cj0 * 1.05);
+  });
+
+  it("under reverse bias, C decreases per Cj0 / (1 − V_D/Vj)^Mj", () => {
+    const Cj0 = 100e-12;
+    const Vj = 0.75;
+    const Mj = 0.5;
+    const measure = (vReverse: number) => {
+      const c: Circuit = {
+        elements: [
+          { kind: "V", id: "vs", a: "cath", b: "gnd", wave: { kind: "dc", value: vReverse } },
+          { kind: "D", id: "d1", a: "gnd", b: "cath", Cj0, Vj, Mj },
+        ],
+      };
+      // Pick a frequency well above the diode's small-signal r_d corner
+      // so the cap dominates the AC impedance.
+      const ac = solveAc(c, 10e6, { vs: { mag: 1 } });
+      const z = impedanceFromSource(ac, "vs");
+      return 1 / (2 * Math.PI * 10e6 * abs(z));
+    };
+    // At 3 V reverse: V_D = -3 → C = Cj0 / sqrt(1 + 3/0.75) = Cj0 / sqrt(5)
+    const expected_3 = Cj0 / Math.sqrt(1 + 3 / Vj);
+    const measured_3 = measure(3);
+    expect(measured_3).toBeGreaterThan(expected_3 * 0.95);
+    expect(measured_3).toBeLessThan(expected_3 * 1.05);
+    // At 10 V reverse: C drops further
+    const expected_10 = Cj0 / Math.sqrt(1 + 10 / Vj);
+    const measured_10 = measure(10);
+    expect(measured_10).toBeGreaterThan(expected_10 * 0.95);
+    expect(measured_10).toBeLessThan(expected_10 * 1.05);
+    // Monotonic decrease: bigger reverse bias → smaller cap
+    expect(measured_10).toBeLessThan(measured_3);
+  });
+
+  it("LC tank with varactor: resonance frequency moves with bias", () => {
+    // 10 µH inductor in parallel with a varactor (Cj0=100 pF). Bias the
+    // varactor through the inductor (DC short), so the cathode sits at
+    // V_bias and the anode at gnd. AC-perturb the bias rail and look at
+    // the parallel-tank impedance peak — that's the resonance.
+    const Cj0 = 100e-12;
+    const L = 10e-6;
+    const Vj = 0.75;
+    const Mj = 0.5;
+
+    const findPeak = (vBias: number) => {
+      const c: Circuit = {
+        elements: [
+          { kind: "V", id: "vbias", a: "vbias", b: "gnd", wave: { kind: "dc", value: vBias } },
+          { kind: "L", id: "l1", a: "tank", b: "vbias", value: L },
+          { kind: "D", id: "dvar", a: "gnd", b: "tank", Cj0, Vj, Mj },
+          // 1 kΩ source resistor between AC drive (vbias's perturbation)
+          // and the tank gives the divider something to do.
+        ],
+      };
+      const pts = acSweep(c, { fStart: 1e5, fStop: 1e8, nPoints: 401, inputs: { vbias: { mag: 1 } } });
+      const peak = pts.reduce((best, p) => (abs(p.v.tank) > abs(best.v.tank) ? p : best));
+      return peak.f;
+    };
+
+    // C at V_D = -1: 100p / sqrt(1+1/0.75) = 65.6 pF → f = 1/(2π√(LC)) ≈ 6.21 MHz
+    // C at V_D = -10: 100p / sqrt(1+10/0.75) = 26.5 pF → f ≈ 9.78 MHz
+    const fLo = findPeak(1);
+    const fHi = findPeak(10);
+    expect(fLo).toBeGreaterThan(5e6);
+    expect(fLo).toBeLessThan(7.5e6);
+    expect(fHi).toBeGreaterThan(8e6);
+    expect(fHi).toBeLessThan(12e6);
+    // Higher reverse bias → smaller C → higher resonance
+    expect(fHi).toBeGreaterThan(fLo);
+  });
+});
+
 describe("AC analysis — op-amp configurations", () => {
   it("ideal voltage follower has unity gain at any frequency", () => {
     const c: Circuit = {
