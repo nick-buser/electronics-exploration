@@ -63,6 +63,16 @@ const PARAMS: CircuitParam[] = [
     step: 0.5,
     format: (v) => `${v.toFixed(1)} pF`,
   },
+  {
+    id: "vaInv",
+    label: "V_A",
+    min: 0,
+    max: 0.02,
+    step: 0.0005,
+    // Slider operates on 1/V_A so the user can sweep from 0 (infinite V_A
+    // = no Early effect) to 0.02 V⁻¹ = V_A = 50 V (typical small-signal).
+    format: (v) => (v === 0 ? "∞" : `${(1 / v).toFixed(0)} V`),
+  },
 ];
 
 const INITIAL: Record<string, number> = {
@@ -71,6 +81,7 @@ const INITIAL: Record<string, number> = {
   cinUF: 10,
   cpiPF: 30,
   cmuPF: 4,
+  vaInv: 0, // start with Early off so the demo opens with familiar behaviour
 };
 
 export function CommonEmitterBodeDemo() {
@@ -101,6 +112,7 @@ export function CommonEmitterBodeDemo() {
           e: "emit",
           Cpi: p.cpiPF * 1e-12,
           Cmu: p.cmuPF * 1e-12,
+          VA: p.vaInv > 0 ? 1 / p.vaInv : undefined,
         },
       ],
     };

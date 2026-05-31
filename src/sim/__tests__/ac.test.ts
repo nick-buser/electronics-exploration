@@ -254,6 +254,90 @@ describe("Parasitic capacitances on nonlinear devices", () => {
   });
 });
 
+describe("Early effect and channel-length modulation", () => {
+  it("BJT g_o = I_C / V_A — direct small-signal output conductance", () => {
+    // Force V_BE and V_C directly, then AC-perturb V_C and measure the
+    // induced ΔI_C. With V_BE = 0.65V the bias I_C ≈ 720 µA; with
+    // V_A = 50 V the output conductance is I_C/V_A ≈ 14 µS.
+    //
+    // Note: a measurement like this on a real bench would use a current
+    // probe and a slow ramp on V_CE. Here we get it for free as a single
+    // complex MNA solve at any frequency well below the parasitic-cap
+    // poles (the BJT model in this PR has no Cπ/Cμ defaults, so the
+    // result is frequency-flat).
+    const VA = 50;
+    const c: Circuit = {
+      elements: [
+        { kind: "V", id: "vbe", a: "base", b: "gnd", wave: { kind: "dc", value: 0.65 } },
+        { kind: "V", id: "vc", a: "coll", b: "gnd", wave: { kind: "dc", value: 5 } },
+        { kind: "Q", id: "q1", polarity: "npn", c: "coll", b: "base", e: "gnd", VA },
+      ],
+    };
+    const op = dcOperatingPoint(c);
+    expect(op.ic.q1).toBeGreaterThan(1e-4);
+    expect(op.v.coll).toBeGreaterThan(op.v.base); // forward active
+    const expected_go = op.ic.q1 / VA;
+
+    // Perturb V_C by 1 V AC and read the source's branch current.
+    // |i.vc| equals |ΔI_C / ΔV_C| = g_o.
+    const ac = solveAc(c, 1, { vc: { mag: 1 } });
+    const measured_go = abs(ac.i.vc);
+    expect(measured_go).toBeGreaterThan(expected_go * 0.9);
+    expect(measured_go).toBeLessThan(expected_go * 1.1);
+  });
+
+  it("MOSFET with λ > 0: saturation picks up a (1 + λ·V_DS) tilt", () => {
+    // Same MOSFET in saturation at two different V_DS values. Without λ,
+    // I_D should be identical. With λ, I_D scales with (1 + λ·V_DS).
+    const buildAtVdd = (vdd: number, lambda?: number): Circuit => ({
+      elements: [
+        { kind: "V", id: "vdd", a: "vdd", b: "gnd", wave: { kind: "dc", value: vdd } },
+        { kind: "V", id: "vgg", a: "gate", b: "gnd", wave: { kind: "dc", value: 3 } },
+        // Drain tied directly to V_DD so V_DS = V_DD (no load).
+        // Vov = V_GS - Vth = 1.5; V_DS = 5 or 10 > Vov, so saturation.
+        { kind: "M", id: "m1", polarity: "nmos", d: "vdd", g: "gate", s: "gnd", lambda },
+      ],
+    });
+    const idealLow = dcOperatingPoint(buildAtVdd(5));
+    const idealHigh = dcOperatingPoint(buildAtVdd(10));
+    // Without λ, saturation current is independent of V_DS
+    expect(idealLow.idmos.m1).toBeCloseTo(idealHigh.idmos.m1, 6);
+
+    const cmLow = dcOperatingPoint(buildAtVdd(5, 0.02));
+    const cmHigh = dcOperatingPoint(buildAtVdd(10, 0.02));
+    // With λ = 0.02 V⁻¹: I_D ∝ (1 + λ·V_DS)
+    // At V_DS = 5: factor = 1.10. At V_DS = 10: factor = 1.20. Ratio = 1.091
+    const ratio = cmHigh.idmos.m1 / cmLow.idmos.m1;
+    expect(ratio).toBeCloseTo(1.2 / 1.1, 3);
+  });
+
+  it("MOSFET output conductance g_ds = λ · I_D in saturation (AC sweep)", () => {
+    // Bias an NMOS into saturation, perturb V_DS by 1 V AC, measure the
+    // current swing through the drain-side V source. The resulting
+    // conductance should match the analytic value.
+    const lambda = 0.05;
+    const c: Circuit = {
+      elements: [
+        { kind: "V", id: "vdd", a: "drain", b: "gnd", wave: { kind: "dc", value: 5 } },
+        { kind: "V", id: "vgg", a: "gate", b: "gnd", wave: { kind: "dc", value: 3 } },
+        { kind: "M", id: "m1", polarity: "nmos", d: "drain", g: "gate", s: "gnd", lambda },
+      ],
+    };
+    const op = dcOperatingPoint(c);
+    const idBias = op.idmos.m1;
+    const expected_gds = lambda * idBias / (1 + lambda * 5);
+    // Probe the source's current when we wiggle V_DD by 1 V AC. By KCL
+    // at the drain, that current equals the change in drain current.
+    const ac = solveAc(c, 1, { vdd: { mag: 1 } });
+    // Source's branch current is internal a→b; for vdd: a=drain, b=gnd.
+    // Positive iSrc = current flowing OUT of the drain node into the
+    // source, which equals -ΔI_D when we tilt V_DD up.
+    const dId = abs(ac.i.vdd);
+    expect(dId).toBeGreaterThan(expected_gds * 0.95);
+    expect(dId).toBeLessThan(expected_gds * 1.05);
+  });
+});
+
 describe("AC analysis — op-amp configurations", () => {
   it("ideal voltage follower has unity gain at any frequency", () => {
     const c: Circuit = {

@@ -925,6 +925,26 @@ void loop() {
         right. Every cascode, every common-base, every bandwidth trick in the analog playbook exists to neutralise this one
         picofarad-times-gain product.
       </p>
+      <h2>The Early effect sets a maximum voltage gain</h2>
+      <p>
+        Push V<sub>A</sub> in the slider down from ∞ and a different ceiling appears: the BJT itself stops being a perfect
+        controlled-current source. The output collector "tilts up" with V<sub>CE</sub> by a small amount, equivalent to a
+        finite output resistance{" "}
+        <strong>
+          r<sub>o</sub> = V<sub>A</sub> / I<sub>C</sub>
+        </strong>
+        . That resistance sits in parallel with R<sub>C</sub>; with R<sub>C</sub> comparable to r<sub>o</sub>, the midband
+        gain collapses to{" "}
+        <code>-g_m · (R_C ‖ r_o)</code> instead of the textbook <code>-g_m · R_C</code>. The maximum gain a single bipolar
+        stage can deliver — with R<sub>C</sub> infinite, biased by a current source — is exactly the{" "}
+        <em>intrinsic gain</em>{" "}
+        <code>g_m · r_o = V_A / V_T</code>. For a 2N3904 with V<sub>A</sub> ≈ 50 V that's about <strong>~2000 V/V</strong>,
+        no matter how you bias it.
+      </p>
+      <Callout label="// math">
+        r<sub>o</sub> = V<sub>A</sub> / I<sub>C</sub> &nbsp;·&nbsp; g<sub>m</sub>·r<sub>o</sub> = V<sub>A</sub> / V
+        <sub>T</sub>
+      </Callout>
       <h2>Gotchas</h2>
       <ul>
         <li>
