@@ -2,6 +2,118 @@ import { describe, expect, it } from "vitest";
 import type { Circuit } from "../circuit";
 import { dcOperatingPoint, runTransient } from "../transient";
 
+describe("Op-amp slew rate", () => {
+  it("voltage follower clamps dV_out/dt at +SR for a positive step", () => {
+    // Buffer fed a 0 → 5V step at t=0. SR = 1 V/µs → output should ramp
+    // linearly at 1 V/µs for 5 µs, then settle at 5V. Without SR the
+    // output would track the step within roughly 1/GBW = 100 ns.
+    const SR = 1e6; // 1 V/µs
+    const c: Circuit = {
+      elements: [
+        {
+          kind: "V",
+          id: "vs",
+          a: "vin",
+          b: "gnd",
+          wave: { kind: "step", t0: 0, v0: 0, v1: 5 },
+        },
+        {
+          kind: "OP",
+          id: "u1",
+          vplus: "vin",
+          vminus: "vout",
+          vout: "vout",
+          A0: 1e5,
+          GBW: 10e6,
+          SR,
+        },
+      ],
+    };
+    // Sample at 100 ns dt out to 10 µs
+    const samples = runTransient(c, { duration: 10e-6, dt: 1e-7 });
+    // At t = 2 µs, output should be ~2 V (2 µs · 1 V/µs)
+    const at2us = samples.find((s) => s.t >= 2e-6);
+    expect(at2us).toBeDefined();
+    expect(at2us!.v.vout).toBeGreaterThan(1.8);
+    expect(at2us!.v.vout).toBeLessThan(2.2);
+    // At t = 5 µs, output is approaching 5V (about there)
+    const at5us = samples.find((s) => s.t >= 5e-6);
+    expect(at5us!.v.vout).toBeGreaterThan(4.5);
+    expect(at5us!.v.vout).toBeLessThanOrEqual(5.05);
+    // After the ramp completes, output settles at 5V
+    const final = samples[samples.length - 1];
+    expect(final.v.vout).toBeGreaterThan(4.95);
+    expect(final.v.vout).toBeLessThan(5.05);
+  });
+
+  it("without SR, the same buffer follows the step within a few µs (GBW-limited)", () => {
+    // Same circuit but no SR — output should reach 5V within a couple of
+    // GBW-defined time constants (~1/(2π·GBW) for a unity-gain buffer,
+    // or ~16 ns at GBW=10 MHz).
+    const c: Circuit = {
+      elements: [
+        {
+          kind: "V",
+          id: "vs",
+          a: "vin",
+          b: "gnd",
+          wave: { kind: "step", t0: 0, v0: 0, v1: 5 },
+        },
+        {
+          kind: "OP",
+          id: "u1",
+          vplus: "vin",
+          vminus: "vout",
+          vout: "vout",
+          A0: 1e5,
+          GBW: 10e6,
+        },
+      ],
+    };
+    const samples = runTransient(c, { duration: 2e-6, dt: 1e-8 });
+    // By 1 µs the output should be settled at the step value
+    const at1us = samples.find((s) => s.t >= 1e-6);
+    expect(at1us!.v.vout).toBeGreaterThan(4.9);
+  });
+
+  it("slew rate kicks in symmetrically on a negative step", () => {
+    const SR = 0.5e6; // 0.5 V/µs
+    const c: Circuit = {
+      elements: [
+        {
+          kind: "V",
+          id: "vs",
+          a: "vin",
+          b: "gnd",
+          // Step from +5V down to -5V at t=0
+          wave: { kind: "step", t0: 0, v0: 5, v1: -5 },
+        },
+        {
+          kind: "OP",
+          id: "u1",
+          vplus: "vin",
+          vminus: "vout",
+          vout: "vout",
+          A0: 1e5,
+          GBW: 10e6,
+          SR,
+        },
+      ],
+    };
+    // V_out starts at 0V (runTransient doesn't pre-seed) and slews down
+    // toward V_in = -5V at 0.5 V/µs → reaches -5V at t = 10 µs.
+    const samples = runTransient(c, { duration: 15e-6, dt: 1e-7 });
+    // At t = 5 µs, mid-ramp: V_out ≈ -2.5 V
+    const mid = samples.find((s) => s.t >= 5e-6);
+    expect(mid!.v.vout).toBeGreaterThan(-3);
+    expect(mid!.v.vout).toBeLessThan(-2);
+    // Fully settled by the end
+    const final = samples[samples.length - 1];
+    expect(final.v.vout).toBeLessThan(-4.9);
+    expect(final.v.vout).toBeGreaterThan(-5.05);
+  });
+});
+
 describe("MNA DC analysis", () => {
   it("solves a voltage divider", () => {
     // 10V across two equal 1k resistors → 5V at the midpoint
