@@ -4490,6 +4490,231 @@ void loop() {
       </ul>
     </>
   ),
+  "c-stepper": () => (
+    <>
+      <h2>What it is</h2>
+      <p>
+        A <strong>stepper motor</strong> moves in discrete angular steps — most commonly <strong>1.8° per step</strong>{" "}
+        (200 steps per revolution) — by energising two coil pairs in a specific sequence. Unlike a brushed DC motor,
+        there's no commutator; the rotor is a permanent magnet (or a toothed iron core) and the driver electronics
+        decide which coils get power and in what direction. The result is{" "}
+        <strong>open-loop position control</strong>: you tell the driver "step 200 times" and the shaft rotates
+        exactly once, no encoder required.
+      </p>
+      <p>
+        That open-loop guarantee is the killer feature — it's why every cheap 3D printer, CNC, pen plotter, and pick-
+        and-place machine uses steppers instead of DC motors. The trade-off is that steppers are inefficient (full
+        current flows whenever the motor is holding position, even at zero RPM), they can <strong>lose steps</strong>{" "}
+        if pushed past their torque envelope (with no encoder, the firmware doesn't notice), and they're loud unless
+        you microstep aggressively.
+      </p>
+      <p>
+        This page anchors on a <strong>NEMA 17 bipolar stepper</strong> (the 42 × 42 mm flange that's standard in
+        desktop CNC and 3D printers) driven by the <strong>Allegro A4988</strong> — the ~$3 chopper driver that's
+        been on every RAMPS-style RepRap board for fifteen years.
+      </p>
+      <h2>Motor specs at a glance</h2>
+      <SpecTable
+        rows={[
+          ["Frame size", "NEMA 17 (42 mm flange) is the maker default. NEMA 23 (57 mm) for heavier loads"],
+          ["Step angle", "1.8° / step = 200 steps/rev (standard). 0.9° = 400 steps/rev exists but is less common"],
+          ["Rated current", "1.0–2.0 A per phase typical. 'Pancake' low-profile motors are ~0.4 A"],
+          ["Rated voltage", "Misleading — see below. The motor's specced voltage is the V at which I·R = I_rated"],
+          ["Holding torque", "Up to ~5 N·m on a NEMA 23, ~0.3–0.6 N·m on a typical NEMA 17"],
+          ["Phase resistance", "Often 2–4 Ω per phase"],
+          ["Phase inductance", "2–10 mH per phase — important: this is what limits max speed"],
+          ["Steps per revolution", "200 full steps. With ×16 microstepping that's 3200 microsteps/rev"],
+        ]}
+      />
+      <h2>How it works — bipolar vs unipolar</h2>
+      <p>
+        A bipolar stepper has <strong>two coils</strong> (= two phases, four wires out). At any moment one coil is
+        energised in one direction, then the other, then the first in the opposite direction, then the second in the
+        opposite direction. That four-step sequence ("full-step mode") rotates the rotor by one step angle for each
+        transition. Reverse the sequence and the motor steps the other way.
+      </p>
+      <p>
+        Unipolar steppers have an extra centre-tap on each coil (= 5 or 6 wires) and can be driven by simpler single-
+        ended switches — the cheap <strong>28BYJ-48</strong> + ULN2003 set from every Arduino kit is unipolar. They
+        give up half the torque (only half each coil is energised at once) and are basically obsolete for serious
+        work. Maker context defaults to bipolar.
+      </p>
+      <h2>The current-chopping driver — A4988</h2>
+      <p>
+        A stepper motor's coil is a series RL circuit. If you apply the rated voltage directly, current rises
+        exponentially with τ = L/R — slowly. By the time the current reaches its rated value (~30 ms for typical
+        motors), the next step is already overdue. Result: high-speed steppers stall.
+      </p>
+      <p>
+        The trick is to power the motor from a <strong>much higher voltage</strong> than its "rated" voltage (12–35 V
+        is common for a "3 V rated" motor) and use a <strong>current-chopping driver</strong> to keep the actual
+        coil current at the target value. The driver rapidly switches the coil ON, sees the current rise (via a
+        small sense resistor), and switches the coil OFF when it hits the target — then back on, then off, at
+        20–50 kHz. The motor sees average current = target, but the high V<sub>BB</sub> means the rise time is fast.
+      </p>
+      <Callout label="// math (current-limit set-point)">
+        I<sub>trip</sub> = V<sub>REF</sub> / (8 · R<sub>S</sub>) &nbsp;·&nbsp; for the A4988's typical R<sub>S</sub>
+        = 0.05 Ω: I<sub>trip</sub> = V<sub>REF</sub> / 0.4 (amps when V<sub>REF</sub> is in volts)
+      </Callout>
+      <SpecTable
+        rows={[
+          [<>V<sub>BB</sub></>, "Motor supply, 8 – 35 V"],
+          [<>V<sub>DD</sub></>, "Logic supply, 3 – 5.5 V"],
+          ["Max output current", "2 A per phase with adequate heatsinking (1 A without)"],
+          ["Microstepping", "Full / 1/2 / 1/4 / 1/8 / 1/16 — selected by MS1 / MS2 / MS3 pins"],
+          ["Interface", "STEP (rising edge = advance one microstep), DIR (HIGH/LOW = forward/reverse)"],
+          ["ENABLE", "Active-low. Pull LOW to energise; HIGH disables the outputs (motor freewheels)"],
+          ["RESET", "Pull HIGH for normal use"],
+          ["SLEEP", "Pull HIGH for normal use; LOW shuts down the analog blocks"],
+          [<>V<sub>REF</sub></>, "Sets the current limit via the on-board trim pot"],
+        ]}
+      />
+      <h2>Microstepping</h2>
+      <p>
+        Energising one coil at a time gives 200 full steps per revolution. Energise both coils at equal current
+        ("half-step mode") and the rotor settles at the magnetic midpoint between two full-step positions — that's
+        400 effective steps per revolution. Vary the ratio of current between coils smoothly (a quarter sine wave
+        in coil A and a quarter cosine in coil B) and you can hold the rotor at any angle in between.
+      </p>
+      <p>
+        The A4988 implements this internally — set MS1/MS2/MS3 to select the division (full, 1/2, 1/4, 1/8, 1/16)
+        and each STEP rising edge advances the internal sine-table index by one microstep. Common configurations:
+      </p>
+      <SpecTable
+        rows={[
+          [
+            "Full step",
+            <>200 steps/rev, max torque, noisy. 3D printer Z axes sometimes still use this</>,
+          ],
+          [
+            "1/2 step",
+            <>400 steps/rev, ~70 % full torque, quieter than full. The original "half-step mode"</>,
+          ],
+          [
+            "1/4, 1/8 step",
+            <>800 / 1600 microsteps/rev. Quieter, smoother — but actual <em>positional</em> accuracy isn't 4×
+            or 8× better; the rotor only weakly snaps between microsteps because the holding torque is sin(θ)-shaped</>,
+          ],
+          [
+            "1/16 step",
+            <>3200 microsteps/rev. The 3D-printer default. Gets you to silent operation and smooth motion at the
+            cost of some torque headroom</>,
+          ],
+          [
+            "1/256 step (TMC2208 / TMC2209)",
+            <>Modern Trinamic drivers go this fine. The motion is glassy-smooth but no end-effector benefits — the
+            motor's own mechanical resolution doesn't go that low</>,
+          ],
+        ]}
+      />
+      <Callout>
+        Microstepping makes motion smoother but doesn't multiply the motor's <em>true</em> resolution by the
+        microstep count. The rotor's actual positional accuracy at 1/16 step is closer to 1/4 step due to detent
+        torque + friction. Use microstepping for noise and vibration; don't budget it as precision.
+      </Callout>
+      <h2>Wiring an A4988 to a NEMA 17 + MCU</h2>
+      <SpecTable
+        rows={[
+          [<>V<sub>BB</sub> + GND</>, "Motor supply. Add a 100 µF electrolytic close to the driver"],
+          [<>V<sub>DD</sub> + GND</>, "Logic supply, 3.3 or 5 V"],
+          ["1A 1B 2A 2B", "Motor coil A and coil B. Identify pairs with a multimeter (continuity)"],
+          ["STEP", "GPIO → one rising edge = one microstep"],
+          ["DIR", "GPIO → HIGH/LOW = direction"],
+          ["ENABLE", "Tie to GND for always-on, or GPIO for software disable"],
+          ["MS1/MS2/MS3", "Microstep selectors. Often tied to GND for full step or 5 V for 1/16"],
+          ["RESET + SLEEP", "Tie together to 5 V for normal use"],
+          [<>V<sub>REF</sub></>, "Tiny trim pot on the board. Measure with a multimeter while motor is at rest"],
+        ]}
+      />
+      <CodeBlock
+        language="cpp"
+        filename="stepper_drive.ino"
+        code={`#include <AccelStepper.h>
+const int STEP_PIN = 3;
+const int DIR_PIN  = 4;
+const int EN_PIN   = 5;
+
+// Driver type 1 = step + dir, 200 steps/rev hardware
+AccelStepper stepper(AccelStepper::DRIVER, STEP_PIN, DIR_PIN);
+
+void setup() {
+  pinMode(EN_PIN, OUTPUT);
+  digitalWrite(EN_PIN, LOW);          // enable the driver
+  stepper.setMaxSpeed(2000);          // microsteps per second
+  stepper.setAcceleration(1000);      // microsteps/s²
+  stepper.moveTo(3200);               // one full revolution at 1/16 microstep
+}
+
+void loop() {
+  stepper.run();
+  if (stepper.distanceToGo() == 0) {
+    stepper.moveTo(-stepper.currentPosition());   // bounce back
+  }
+}`}
+      />
+      <h2>Driver alternatives</h2>
+      <Compare
+        header={["", "Current / Voltage", "Notable"]}
+        rows={[
+          ["A4988", "2 A / 35 V", "This page. The classic. Loud chopping noise at high speeds"],
+          ["DRV8825", "2.2 A / 45 V", "TI's step up from the A4988 — pin-compatible, higher V_BB, microsteps to 1/32"],
+          ["TMC2208 (standalone)", "1.2 A / 36 V", "Trinamic's first silent driver. StealthChop PWM, no audible chopping"],
+          ["TMC2209 (UART)", "2 A / 36 V", "Adds UART configurability and StallGuard — sensorless homing"],
+          ["TMC5160", "3 A / 60 V", "High-current with SPI control, internal motion controller"],
+          ["ULN2003 + 28BYJ-48", "~0.2 A / 5 V", "The Arduino-kit cheap-stepper combo. Toy-grade, fine for slow indicators"],
+          ["L298N (used as stepper driver)", "2 A / 46 V", "Possible but inefficient — same downsides as on the DC motor page"],
+        ]}
+      />
+      <h2>Gotchas</h2>
+      <ul>
+        <li>
+          <strong>Setting V_REF wrong cooks the motor.</strong> The trim pot on the A4988 sets the current limit. Set
+          it too high and the coils run hot; set it too low and the motor skips steps under load. Procedure:
+          measure V<sub>REF</sub> with a multimeter (probe between the pot wiper and GND) while the motor is
+          stationary and energised. For a 1 A motor with R<sub>S</sub> = 0.05 Ω, target V<sub>REF</sub> = 0.4 V.
+        </li>
+        <li>
+          <strong>Don't plug or unplug the motor with power on.</strong> Hot-plugging a stepper to an A4988 can
+          punch through the internal H-bridge MOSFETs — there are body-diode current paths that survive but
+          repeated abuse kills the driver. Always power down V<sub>BB</sub> first.
+        </li>
+        <li>
+          <strong>"Lost steps" are silent.</strong> If the motor is asked to move faster than its torque envelope
+          allows (high speed, heavy load, bad acceleration ramp), it stalls one or more steps without telling
+          the driver. The firmware keeps incrementing its position counter, the actual position drifts further
+          and further behind. Fix: accelerate gently (200–2000 microsteps/s² ramps), keep V<sub>BB</sub> high
+          for fast moves, or use a TMC2209 with StallGuard which detects stalls electrically.
+        </li>
+        <li>
+          <strong>The "rated voltage" on the motor label is misleading.</strong> A motor specced "3 V / 1.7 A"
+          is meant to be driven by a current-controlled chopper from 24 V (or whatever). The 3 V is just
+          V = I · R<sub>winding</sub>. Drive it from 3 V directly and you'll get terrible high-speed performance.
+        </li>
+        <li>
+          <strong>Heatsink the driver above 1 A.</strong> The A4988 has an exposed pad under the chip; the
+          breakout boards usually have a small heatsink that you can stick on top. Without it, at 2 A the chip's
+          internal thermal-shutdown trips after 30 seconds and the motor freezes.
+        </li>
+        <li>
+          <strong>Identify coils with a multimeter, not the wire colours.</strong> NEMA 17 colour conventions
+          vary by manufacturer — black/green/red/blue from one brand isn't the same coil grouping as another's.
+          A continuity check between every pair finds the two coils (the two pairs that beep). Get this wrong
+          and the motor vibrates without rotating.
+        </li>
+        <li>
+          <strong>Step pulses need a minimum width.</strong> The A4988 datasheet requires STEP high for ≥ 1 µs.
+          GPIO toggles at 100 kHz pass this; bit-banged STEP at 1 MHz from a tight loop on a fast MCU may not.
+          Symptom: motor moves fewer steps than commanded at high rates. Fix: add a 1 µs delay between the
+          rising and falling edge of STEP, or use a hardware timer for the pulse generation.
+        </li>
+        <li>
+          <strong>The A4988 squeals at low speeds.</strong> The chopper PWM modulates at a frequency that can
+          land in audible territory (10–15 kHz). The motor coil becomes a speaker. Trinamic drivers (TMC2208+)
+          use a high-frequency PWM scheme specifically to push the chopping noise out of human hearing.
+        </li>
+      </ul>
+    </>
+  ),
 };
 
 export const JournalBodies: Record<string, Body> = {
