@@ -58,6 +58,7 @@ export const COMPONENTS: Component[] = [
   { type: "component", slug: "c-1n4148", title: "1N4148", domain: "ee", deck: "The default small-signal switching diode. ~4 ns recovery, ~700 mV forward drop, in every parts bin worth having." },
   { type: "component", slug: "c-2n3904", title: "2N3904 NPN", domain: "ee", deck: "Workhorse small-signal NPN transistor. β ≈ 200, 40V/200mA, TO-92 — the default first BJT in a lot of designs." },
   { type: "component", slug: "c-2n7000", title: "2N7000 NMOS", domain: "ee", deck: "Small-signal N-channel enhancement MOSFET. Vth ≈ 1.5V, drives 200mA. Cheap, common, TO-92 — what you reach for when an MCU pin can't sink enough current." },
+  { type: "component", slug: "c-led", title: "LED", domain: "ee", deck: "The first peripheral every engineer wires up. A pn junction that emits photons instead of heat. Get the current-limit resistor right and everything else follows." },
 ];
 
 export const TOOLS: Tool[] = [

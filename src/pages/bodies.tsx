@@ -2912,6 +2912,248 @@ int main(void) {
       </ul>
     </>
   ),
+  "c-led": () => (
+    <>
+      <h2>What it is</h2>
+      <p>
+        A <strong>light-emitting diode</strong>: a pn junction made from a direct-bandgap semiconductor (GaAs, GaN, InGaN
+        and friends) so that when an electron crosses the junction and recombines with a hole, the energy released comes
+        out as a photon instead of a phonon. The wavelength is set by the bandgap of the material, which is in turn set
+        by the alloy composition. That's why colour is fixed at manufacture and why every LED has a different forward
+        voltage: a red LED's bandgap is ~1.9 eV, a blue one's is ~2.7 eV, so blue costs more electrons-per-photon and
+        drops more voltage across the junction.
+      </p>
+      <p>
+        Practically: an LED is a diode you treat as a current-driven load, not a voltage-driven one. You pick the
+        current you want flowing (typically 5–20 mA for indicators, 350 mA for power LEDs, up to several amps for high-
+        brightness arrays) and design the surrounding circuit to deliver exactly that. The "20 mA at 2 V" you see in
+        a parts catalog is just the spec sheet's pick of one operating point on the diode's exponential I/V curve.
+      </p>
+      <h2>Datasheet at a glance — common 5 mm indicator LEDs</h2>
+      <SpecTable
+        rows={[
+          [<>Red (GaAlAs)</>, <>V<sub>f</sub> ≈ 1.8–2.1 V @ 20 mA, λ ≈ 625 nm, ~3000 mcd at 20°</>],
+          [<>Yellow / Amber (AlGaInP)</>, <>V<sub>f</sub> ≈ 2.0–2.2 V @ 20 mA, λ ≈ 590 nm</>],
+          [<>Green (older, GaP)</>, <>V<sub>f</sub> ≈ 2.2 V @ 20 mA, λ ≈ 565 nm, dim</>],
+          [<>Pure green (InGaN)</>, <>V<sub>f</sub> ≈ 3.0–3.4 V @ 20 mA, λ ≈ 525 nm, very bright</>],
+          [<>Blue (InGaN)</>, <>V<sub>f</sub> ≈ 3.0–3.4 V @ 20 mA, λ ≈ 470 nm</>],
+          [<>White (blue + phosphor)</>, <>V<sub>f</sub> ≈ 3.0–3.4 V @ 20 mA, full visible spectrum</>],
+          [<>UV (385–405 nm)</>, <>V<sub>f</sub> ≈ 3.3–3.8 V @ 20 mA, beware eye safety</>],
+          [<>IR (GaAs, 850 / 940 nm)</>, <>V<sub>f</sub> ≈ 1.2–1.5 V @ 20–100 mA, what every remote control uses</>],
+        ]}
+      />
+      <SpecTable
+        rows={[
+          ["Max forward current (typical 5 mm)", "20–30 mA continuous, 100 mA pulsed at <1 % duty"],
+          ["Max reverse voltage", "5 V (most parts). LEDs are terrible Zeners — exceed it and they fail short or open"],
+          ["Viewing angle", "10° (focused indicator) to 120° (diffused or 'wide-angle')"],
+          [<>Thermal coefficient of V<sub>f</sub></>, "−2 to −4 mV/°C. Matters for current-source-driven power LEDs, not for indicators"],
+          ["Optical efficiency", "10–25 lm/W for indicators, 100–200+ lm/W for modern white power LEDs"],
+        ]}
+      />
+      <h2>The current-limit resistor</h2>
+      <p>
+        Wire an LED directly across 5 V and it draws a runaway exponential current, gets very hot, and dies in
+        milliseconds. The reason is that the diode's I/V curve is nearly vertical once forward-biased — V<sub>f</sub>{" "}
+        changes by only ~100 mV as the current spans three decades — so you cannot regulate the current by controlling
+        the voltage source. You insert a resistor in series that <em>does</em> have a controllable I/V slope (Ohm's
+        law) and let it absorb the difference.
+      </p>
+      <Callout label="// math">
+        R = (V<sub>supply</sub> − V<sub>f</sub>) / I<sub>LED</sub> &nbsp;·&nbsp; P<sub>R</sub> = (V<sub>supply</sub> −
+        V<sub>f</sub>) · I<sub>LED</sub>
+      </Callout>
+      <p>
+        For a red LED (V<sub>f</sub> = 2.0 V) running at 10 mA from a 5 V rail: R = (5 − 2) / 0.010 = 300 Ω. The
+        nearest E12 value is 330 Ω, which gives 9.1 mA — close enough; LEDs don't care about ±10%. The resistor
+        dissipates (5 − 2)·0.010 = 30 mW, well within a standard 1/8 W part.
+      </p>
+      <p>
+        For a 3.3 V MCU rail driving a blue LED (V<sub>f</sub> = 3.2 V): (3.3 − 3.2) / 0.010 = 10 Ω. The headroom is
+        tiny and the resistor barely limits anything — small variations in V<sub>f</sub> across temperature swing the
+        current dramatically. <strong>The fix is to source a higher rail (5 V) through a transistor, or use a constant-
+        current driver, or accept that the LED brightness will drift.</strong> Driving 3.0+ V LEDs from a 3.3 V GPIO is
+        a common newbie footgun.
+      </p>
+      <h2>Wiring</h2>
+      <p>
+        Two equivalent canonical wirings — current-sourcing (GPIO drives the anode, LED to GND) and current-sinking
+        (anode to V<sub>cc</sub>, GPIO sinks from the cathode). They produce identical light but invert the polarity:
+        in source mode the GPIO going HIGH lights the LED; in sink mode the GPIO going LOW lights it. The choice
+        usually comes down to which mode your MCU sinks/sources better (most modern CMOS GPIOs do both equally; older
+        bipolar designs sink stronger than they source).
+      </p>
+      <Callout>
+        The LED's longer leg is the <strong>anode</strong> (+). The flat side on the body and the shorter leg mark the
+        <strong> cathode</strong> (−). On a SMD LED there's a green dot, T-bar, or chamfered corner on the cathode
+        side — every manufacturer marks it differently, so when in doubt put 1 mA through it from a bench supply
+        and see which way it lights.
+      </Callout>
+      <h2>Driving an LED from an MCU pin</h2>
+      <p>
+        Modern 3.3 V MCU GPIOs can typically source or sink 8–20 mA per pin — fine for one indicator LED. Two
+        constraints sneak up on people:
+      </p>
+      <ul>
+        <li>
+          <strong>Per-pin current limit</strong> (datasheet) — usually 20–25 mA on STM32, 12 mA on most ESP32 pins, 8 mA
+          on a fresh Cortex-M0+. Push past this and you don't blow the pin instantly, but you accelerate latch-up risk
+          and the output high voltage sags.
+        </li>
+        <li>
+          <strong>Total port current limit</strong> — the sum across all pins in a port has its own ceiling, typically
+          100 mA for an entire 16-pin port. Wire 16 LEDs to one port at 15 mA each and you'll exceed it. The fix is
+          either fewer LEDs per port, lower per-LED current, or external buffers.
+        </li>
+      </ul>
+      <p>
+        For anything past one or two LEDs per port, or for high-current (100+ mA) LEDs, switch to an external
+        transistor — see the <a href="#/c-2n7000">2N7000</a> page for an NMOS low-side driver, or a P-channel MOSFET
+        for a high-side switch.
+      </p>
+      <CodeBlock
+        language="cpp"
+        filename="blink.ino"
+        code={`// Anode → GPIO via 330 Ω, cathode → GND. (Current-sourcing wiring.)
+const int LED_PIN = 8;
+
+void setup() {
+  pinMode(LED_PIN, OUTPUT);
+}
+
+void loop() {
+  digitalWrite(LED_PIN, HIGH);   // ~10 mA through the LED
+  delay(500);
+  digitalWrite(LED_PIN, LOW);    // off
+  delay(500);
+}`}
+      />
+      <h2>PWM dimming and the eye's gamma</h2>
+      <p>
+        Linear current dimming works but eats power as heat in the limiting resistor (the resistor still drops
+        V<sub>supply</sub> − V<sub>f</sub> at any current). PWM at &gt; ~120 Hz fools the eye into seeing a smooth
+        average brightness while the LED runs at its rated I<sub>F</sub> during the on phase — efficient and easy on
+        any GPIO with a timer behind it.
+      </p>
+      <Callout label="// math">
+        I<sub>avg</sub> = I<sub>F</sub> · duty &nbsp;·&nbsp; perceived brightness ∝ duty<sup>γ</sup>, γ ≈ 2.2
+      </Callout>
+      <p>
+        The catch is that human vision is nonlinear: the eye is much more sensitive to brightness changes in dim light
+        than in bright light. A linear PWM sweep from 0 % to 100 % duty <em>looks</em> like it jumps from off to
+        almost-full-bright over the first 20 % and then barely changes after that. The fix is to apply a gamma curve:
+        instead of <code>brightness ∝ duty</code>, use <code>duty ∝ brightness^2.2</code>. For 8-bit input → 8-bit
+        PWM:
+      </p>
+      <CodeBlock
+        language="cpp"
+        filename="gamma_dim.ino"
+        code={`// Pre-computed gamma=2.2 lookup table — turns "input" into the duty value
+// that makes brightness changes look perceptually linear.
+const uint8_t GAMMA[256] = {
+  0,0,0,0,0,0,0,0,1,1,1,1,1,1,2,2,2,3,3,3,4,4,4,5,5,5,6,6,7,7,8,8,
+  9,9,10,11,11,12,12,13,14,14,15,16,17,17,18,19,20,21,21,22,23,24,25,26,
+  /* ... */
+  244,246,248,250,251,253,255
+};
+
+void setBrightness(uint8_t input) {
+  analogWrite(LED_PIN, GAMMA[input]);
+}`}
+      />
+      <p>
+        For an exact curve at runtime, use <code>round(255 * pow(input / 255.0, 2.2))</code> — but the table version
+        is ~50× faster and identical to within rounding.
+      </p>
+      <h2>Varieties worth knowing</h2>
+      <SpecTable
+        rows={[
+          [
+            "Through-hole (5 mm, 3 mm)",
+            <>The classic indicator. Domed lens, 10–60° viewing angle, 1–5 mcd to ~10 cd</>,
+          ],
+          [
+            "Surface-mount (0603, 0805, etc.)",
+            <>Same chip in a tiny package. PLCC-2 if you want diffused-side emission, side-lookers for backlight strips</>,
+          ],
+          [
+            "High-brightness / 'super-bright'",
+            <>Marketing for "good optical efficiency, narrow viewing angle." Visible in daylight</>,
+          ],
+          [
+            "RGB LED",
+            <>Three dice in one package. <strong>Common-anode</strong> (3 cathodes, anode tied to V<sub>cc</sub>) or
+            <strong> common-cathode</strong> (3 anodes, cathode to GND). Pick the polarity that matches your driver</>,
+          ],
+          [
+            "Addressable / WS2812 / 'NeoPixel'",
+            <>RGB LED + tiny IC in one package. Daisy-chain on one data line, send 24 bits per LED at 800 kHz.
+            See <a href="#/c-rp2040">c-rp2040</a> for the PIO driver pattern</>,
+          ],
+          [
+            "Power LED (1 W / 3 W / 10 W)",
+            <>Star-MCPCB package, 350 mA / 700 mA / 1+ A at 3–3.5 V V<sub>f</sub>. Needs a heatsink and a constant-current
+            driver, not a resistor</>,
+          ],
+          [
+            "Bi-colour / tri-colour (2-pin)",
+            <>Two dice anti-parallel. Drive AC or alternate polarity to mix. Half the pin count of an RGB</>,
+          ],
+          [
+            "IR LED (940 nm)",
+            <>What every remote, IR-LED-strip, and IR-blaster emits. Same diode physics, you just can't see the light</>,
+          ],
+        ]}
+      />
+      <h2>Gotchas</h2>
+      <ul>
+        <li>
+          <strong>Reverse voltage breakdown is low.</strong> Most LEDs have V<sub>R(max)</sub> around 5 V. They are
+          <em>not</em> Zeners — exceed it and they fail unpredictably. Bridge a 12 V supply across an LED backwards and
+          you'll see a brief flash, then nothing. If reverse voltage is a possibility (back-EMF from a motor, AC across
+          a bicolour pair, a polarity-reversal mishap), put a 1N4148 anti-parallel across the LED to clamp it.
+        </li>
+        <li>
+          <strong>Two LEDs in parallel without per-LED resistors will drift apart.</strong> V<sub>f</sub> varies ±5 %
+          part-to-part; the LED with the lower V<sub>f</sub> hogs more current, gets hotter, lowers its V<sub>f</sub>{" "}
+          further, and eventually one dies bright while the others go dim. Always one resistor <em>per LED</em>, never
+          one resistor shared across a parallel pair.
+        </li>
+        <li>
+          <strong>Series strings of LEDs are fine.</strong> If your supply has the headroom: three red LEDs (V
+          <sub>f</sub> = 2.0 V each) in series from 9 V need a (9 − 6)/0.010 = 300 Ω resistor and draw 10 mA total
+          instead of 30 mA. Same brightness, 1/3 the current, 1/9 the resistor power.
+        </li>
+        <li>
+          <strong>3.3 V GPIO cannot drive a blue/white LED at full brightness</strong> — explained above. If you need
+          a bright modern LED off a 3.3 V MCU, switch a separate 5 V rail through a transistor instead.
+        </li>
+        <li>
+          <strong>The "calculator" current-limit resistor is a maximum, not a minimum.</strong> Most indicator LEDs
+          look fine at 2–5 mA, which is half the textbook value, and runs cooler. Don't feel obligated to push 20 mA
+          unless you're actually trying to see the thing in daylight.
+        </li>
+        <li>
+          <strong>WS2812 strings need a 5 V data line.</strong> Most addressable strips spec 0.7 × V<sub>DD</sub> as
+          logic-high threshold, which at V<sub>DD</sub> = 5 V is 3.5 V — just above a 3.3 V MCU's V<sub>OH</sub>. You
+          get away with it sometimes, but for reliability use a 74AHCT125 buffer powered from 5 V to lift the data
+          line. The first LED in the chain is usually the one that misbehaves.
+        </li>
+        <li>
+          <strong>The longer leg fooled you once.</strong> SMD LED polarity is marked differently by every vendor — a
+          green dot, T-bar, chamfered corner, or printed C. When in doubt, current-limited bench supply at 1 mA and
+          eyeball it. Backwards is no light but no damage at 1 mA; backwards at 20 mA risks the reverse-breakdown
+          flash.
+        </li>
+        <li>
+          <strong>Power LEDs need a constant-current driver, not a resistor.</strong> A 3 W LED at 3.2 V / 700 mA in
+          series with a resistor from 5 V wastes (5 − 3.2) · 0.7 = 1.3 W in the resistor — half the LED's actual rated
+          power, as heat in a tiny part. Use a switch-mode CC driver (CAT4101, AL8807, AP3017, the LED-strip-style
+          PT4115); for one-off projects a $1 module solves it.
+        </li>
+      </ul>
+    </>
+  ),
 };
 
 export const JournalBodies: Record<string, Body> = {
