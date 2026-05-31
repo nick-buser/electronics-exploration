@@ -1728,6 +1728,460 @@ int main(void) {
       </ul>
     </>
   ),
+  "c-stm32": () => (
+    <>
+      <h2>What it is</h2>
+      <p>
+        STMicroelectronics' ARM Cortex-M family — the industrial standard for "I need a real microcontroller in a real
+        product." Where the ESP32 is "MCU + Wi-Fi for $3" and the RP2040 is "the hobby community's favourite weirdo," the
+        STM32 is what's actually inside the washing machine, the medical device, the drone flight controller, and the
+        FOC motor driver on your bench. Wide voltage range, deterministic timers, dense and well-validated peripherals,
+        a HAL that's been beaten on for fifteen years, and tools that are free but professional-grade.
+      </p>
+      <p>
+        The downside is that "STM32" isn't one chip — it's <strong>~2000 part numbers</strong> across a dozen families
+        (F0, F1, F3, F4, F7, H7, L0, L1, L4, L5, G0, G4, U5, WB, WL…). The peripherals are mostly the same across the
+        line, but clocks, packages, and feature sets shift between every group. Pick the wrong family and you'll discover
+        on month two that the DMA mux behaves differently or the bootloader doesn't speak USB DFU on your part.
+      </p>
+      <Callout>
+        For the rest of this page the worked examples target the <strong>STM32F103C8T6</strong> on the "Blue Pill" board
+        — the ~$3 dev module that's the canonical first STM32. Where the F4 (the production workhorse) or H7 (the
+        Cortex-M7 monster) differs materially, it's called out.
+      </Callout>
+      <h2>The family at a glance</h2>
+      <Compare
+        header={["", "Core", "Clock", "Sweet spot"]}
+        rows={[
+          ["STM32F0", "Cortex-M0", "48 MHz", "Cheap entry-level, 8-bit replacements"],
+          ["STM32F1", "Cortex-M3", "72 MHz", "Legacy workhorse. The Blue Pill chip"],
+          ["STM32F3", "Cortex-M4F", "72 MHz", "Analog-heavy: fast comparators, op-amps on-die"],
+          ["STM32F4", "Cortex-M4F", "168–180 MHz", "Production default. F407 Discovery is the canonical board"],
+          ["STM32F7", "Cortex-M7", "216 MHz", "Cache + double-precision FPU. Audio, vision pre-processing"],
+          ["STM32H7", "Cortex-M7 (+M4)", "Up to 550 MHz", "The monster. Cache, DMA grid, dual-core variants"],
+          ["STM32L0/L4/L5/U5", "M0+ / M4 / M33 / M33", "32–160 MHz", "Low power. STOP modes in single-digit µA"],
+          ["STM32G0/G4", "Cortex-M0+ / M4", "64–170 MHz", "Newer mainstream, replacing F0/F3 in new designs"],
+          ["STM32WB / WL", "M4 + radio coprocessor", "64 MHz", "BLE / Zigbee / Thread / LoRa on-die"],
+        ]}
+      />
+      <h2>The Blue Pill, and the Blue Pill counterfeit problem</h2>
+      <p>
+        A 53 × 22 mm castellated board with an STM32F103C8T6, a USB-µB port, two pushbuttons, an LED on PC13, and two jumpers
+        that set the boot pins. Roughly $2 from AliExpress, $5 from a reputable distributor. It's been the first STM32
+        for a generation of embedded developers — but two long-running problems sit on top of it:
+      </p>
+      <ul>
+        <li>
+          <strong>The USB pull-up is wrong.</strong> The datasheet says a 1.5 kΩ pull-up from D+ to 3.3 V (signalling
+          full-speed); the Blue Pill ships with a 10 kΩ resistor (R10) which is wildly out of spec. It usually enumerates
+          anyway, but some hosts (especially USB3 hubs and Macs) refuse. The fix is to replace R10 with 1.5 kΩ, or tack a
+          ~1.8 kΩ from D+ to 3.3 V across it.
+        </li>
+        <li>
+          <strong>Counterfeit chips are everywhere.</strong> Cheap Blue Pills increasingly ship with relabeled CKS32 / GD32
+          clones, or genuine F103C6 (32 KB) re-marked as C8 (64 KB). Symptom: code runs fine until you cross the 32 KB
+          flash boundary, then bricks mysteriously. <code>st-info --probe</code> or the readable Flash Size Register at
+          <code>0x1FFFF7E0</code> tells you what's actually on the board.
+        </li>
+      </ul>
+      <Callout>
+        Newer alternative: the <strong>"Black Pill"</strong> (WeAct STM32F411CEU6) — same form factor, Cortex-M4F at 100
+        MHz, USB-C, working USB pull-up, real ST silicon, ~$8. If you're starting a new project today, get a Black Pill
+        instead. The Blue Pill is still the most-tutorialled board on the internet, which is the only reason to keep
+        reaching for it.
+      </Callout>
+      <h2>Datasheet at a glance (STM32F103C8T6)</h2>
+      <SpecTable
+        rows={[
+          ["CPU", "ARM Cortex-M3 @ 72 MHz max (no FPU)"],
+          ["Memory", "64 KB Flash (often 128 KB on C8 silicon — the 'extra 64' bonus), 20 KB SRAM"],
+          ["GPIO", "37 usable on the LQFP-48 package (across ports A/B/C). All 5V-tolerant on PA8+, PB0+, PC13"],
+          ["ADC", "2× 12-bit SAR @ 1 MS/s each, 16 channels total, includes an internal temp + Vrefint"],
+          ["DAC", "None on F103 (F100 / F303 / F4 have it)"],
+          ["UART", "3× USART (1 hardware-flow-control capable)"],
+          ["I²C", "2× hardware, 100 kHz / 400 kHz. The Synopsys block — famously buggy errata, see gotchas"],
+          ["SPI", "2× hardware, up to 18 MHz (clk/2)"],
+          ["Timers", "4× general-purpose 16-bit + 1× advanced 16-bit + 2× basic 16-bit. PWM, encoder, capture/compare"],
+          ["USB", "Full-Speed (12 Mbps) device only. No host. No DMA — the USB block uses packet memory"],
+          ["CAN", "1× bxCAN. Shares pins and registers with USB on some packages — exclusive use"],
+          [<>V<sub>DD</sub></>, <>2.0 – 3.6 V. Most pins 5V-tolerant for digital inputs</>],
+          ["Package", "LQFP-48 on the Blue Pill, also LQFP-64 / LQFP-100 / TQFP / BGA"],
+        ]}
+      />
+      <h2>GPIO, pin mux, and the AFIO model</h2>
+      <p>
+        STM32 GPIOs live in 16-pin <strong>ports</strong> (GPIOA, GPIOB, …). Each pin has a fixed default function plus a
+        small set of <strong>alternate functions</strong> chosen at config time. On the F1 family the alternate functions
+        are coarse — a peripheral block (USART1, SPI1, etc.) gets mapped to one of typically two pin sets through the
+        <strong> AFIO remap</strong> register, all-or-nothing. The F2 and later families switched to a per-pin AFIO mux
+        that's much more flexible.
+      </p>
+      <SpecTable
+        rows={[
+          ["Default USART1", "PA9 = TX, PA10 = RX (remappable to PB6/PB7)"],
+          ["Default USART2", "PA2 = TX, PA3 = RX"],
+          ["Default I²C1", "PB6 = SCL, PB7 = SDA (remappable to PB8/PB9)"],
+          ["Default SPI1", "PA5 = SCK, PA6 = MISO, PA7 = MOSI"],
+          ["USB", "PA11 = D−, PA12 = D+"],
+          ["SWD (programming / debug)", "PA13 = SWDIO, PA14 = SWCLK"],
+          ["Boot pins", "BOOT0 (pin 44 on LQFP-48) + BOOT1 = PB2"],
+          ["ADC pins", "PA0-7, PB0-1, PC0-5 (PA0 = ADC1_IN0)"],
+          ["Onboard LED (Blue Pill)", "PC13 — active LOW, 3 mA max drain when configured as output"],
+        ]}
+      />
+      <Callout label="// PC13 is a strange GPIO">
+        On the F103, PC13/14/15 are connected to the internal RTC domain and the LSE oscillator. They can drive up to
+        only <strong>3 mA</strong> and they're slow (max toggle rate 2 MHz). Fine for the onboard LED, useless for
+        anything else — the Blue Pill silkscreen just happens to put the most-tempting GPIO on the most-restricted pins.
+      </Callout>
+      <h2>The boot pin dance</h2>
+      <p>
+        Two pins decide what code runs after reset, sampled once at the rising edge of NRST:
+      </p>
+      <SpecTable
+        rows={[
+          [
+            "BOOT0 = 0",
+            <>Boot from <strong>main Flash</strong> (your application). Normal operation.</>,
+          ],
+          [
+            "BOOT0 = 1, BOOT1 = 0",
+            <>Boot from <strong>System Memory</strong>: ST's factory ROM bootloader. Speaks UART1 and USB DFU.</>,
+          ],
+          [
+            "BOOT0 = 1, BOOT1 = 1",
+            <>Boot from <strong>SRAM</strong>. Used for code-in-RAM debugging.</>,
+          ],
+        ]}
+      />
+      <p>
+        On the Blue Pill, two jumpers expose BOOT0 and BOOT1 — flip BOOT0 to 1, press reset, and you're in the ROM
+        bootloader. From there <code>stm32flash</code> (UART) or <code>dfu-util</code> (USB) can write your binary even
+        without an ST-Link. But almost nobody uses this path on the Blue Pill because of the USB pull-up problem above;
+        the canonical flow is ST-Link over SWD instead.
+      </p>
+      <h2>Programming and debugging — ST-Link + SWD</h2>
+      <p>
+        The native ST-Link interface is <strong>SWD</strong> (Serial Wire Debug): 2 wires for the debug protocol (SWDIO,
+        SWCLK), plus 3V3 and GND. Optional NRST and SWO (single-wire trace output). An <strong>ST-Link V2 clone</strong>{" "}
+        is ~$3 from anywhere; ST's official one is $30 with more capability. They program any STM32 in production, debug
+        with full step / breakpoint / variable inspection, and stream printf via SWO at up to 2 Mbps without using a
+        UART pin.
+      </p>
+      <CodeBlock
+        language="text"
+        filename="flash.sh"
+        code={`# Probe (no flash)
+st-info --probe
+# → F1xx Medium-density, flash 128 KiB, sram 20 KiB
+
+# Flash a raw binary at the application base (0x08000000)
+st-flash write firmware.bin 0x08000000
+
+# Or use the cross-vendor OpenOCD path
+openocd -f interface/stlink.cfg -f target/stm32f1x.cfg \\
+        -c "program firmware.elf verify reset exit"
+
+# Or use ST's command line on top of CubeProgrammer
+STM32_Programmer_CLI -c port=SWD -w firmware.elf -v -rst
+
+# Erase (the "I have a board that's behaving wildly" first step)
+st-flash erase`}
+      />
+      <Callout>
+        Buy two ST-Link V2 clones the first time you order: one almost always has its firmware stuck at the factory
+        revision (won't talk to current OpenOCD) and you'll want the working one alongside while you upgrade it via{" "}
+        <code>STM32CubeProgrammer</code>'s ST-Link firmware update tool.
+      </Callout>
+      <h2>Toolchains: pick your level of abstraction</h2>
+      <Compare
+        header={["", "What it is", "Use when"]}
+        rows={[
+          [
+            "STM32CubeIDE",
+            "ST's Eclipse-based IDE + CubeMX integration. Free, free training, official support",
+            "Production firmware, peripheral-heavy designs where CubeMX's clock-tree GUI earns its keep",
+          ],
+          [
+            "STM32CubeMX",
+            "Graphical peripheral configurator. Emits HAL or LL init code as a CMake / Makefile / IDE project",
+            "Bootstrapping a new board. Generate the init, then ignore it and write your own from there",
+          ],
+          [
+            "PlatformIO + Arduino_Core_STM32",
+            "The stm32duino Arduino core, all your Arduino libraries, PlatformIO's lockfile workflow",
+            "Fast prototypes, when the Arduino HAL is enough, when you don't want to fight CMake",
+          ],
+          [
+            "libopencm3 / ChibiOS / Zephyr",
+            "Third-party HAL or full RTOS. CMSIS underneath, vendor-neutral API on top",
+            "Multi-vendor projects, or when you've grown out of ST's HAL and want lighter-weight code",
+          ],
+          [
+            "Bare-metal CMSIS",
+            "ST's chip headers + arm-none-eabi-gcc. You write to the registers directly",
+            "Tight loops, very small chips, or when you genuinely need to read every line of code in your binary",
+          ],
+          [
+            "embedded Rust (stm32-hal, embassy)",
+            "Crate ecosystem with strongly-typed peripheral access. Async via embassy",
+            "When you want compile-time correctness for the peripheral state machine",
+          ],
+        ]}
+      />
+      <h2>HAL vs LL vs registers</h2>
+      <p>
+        ST ships <strong>two</strong> peripheral libraries with the same headers, plus the raw registers underneath. The
+        same UART transmit looks dramatically different at each level:
+      </p>
+      <CodeBlock
+        language="c"
+        filename="uart_tx.c"
+        code={`#include "stm32f1xx_hal.h"
+
+// HAL: thick, friendly, lots of error-handling branches and DMA glue
+extern UART_HandleTypeDef huart1;          // declared in main.c by CubeMX
+void hal_send(const char *msg, uint16_t n) {
+    HAL_UART_Transmit(&huart1, (uint8_t *)msg, n, HAL_MAX_DELAY);
+}
+
+// LL (Low Layer): thin, register-level, no buffering or callbacks
+#include "stm32f1xx_ll_usart.h"
+void ll_send(const char *msg, uint16_t n) {
+    for (uint16_t i = 0; i < n; i++) {
+        while (!LL_USART_IsActiveFlag_TXE(USART1)) {}
+        LL_USART_TransmitData8(USART1, msg[i]);
+    }
+}
+
+// Raw registers: the actual bus transactions, useful as a sanity check
+#include "stm32f103xb.h"
+void reg_send(const char *msg, uint16_t n) {
+    for (uint16_t i = 0; i < n; i++) {
+        while (!(USART1->SR & USART_SR_TXE)) {}
+        USART1->DR = msg[i];
+    }
+}`}
+      />
+      <p>
+        HAL code generates ~5× the binary size of LL or registers but handles every edge case the chip has. Most
+        production firmware mixes the two: HAL for one-shot init (clock tree, DMA controllers), LL or registers in the
+        hot path. The CMSIS register definitions (<code>stm32f103xb.h</code>) are always available no matter which HAL
+        you picked, so you can drop down a level anytime.
+      </p>
+      <h2>Hello world over USART, three ways</h2>
+      <p>
+        UART1 on PA9/PA10, 115200 8N1 — wire an FTDI-style USB-UART or use the ST-Link's optional VCP if your clone has
+        one.
+      </p>
+      <CodeBlock
+        language="c"
+        filename="main.c (CubeIDE / HAL)"
+        code={`#include "main.h"
+extern UART_HandleTypeDef huart1;          // CubeMX-generated init
+
+int main(void) {
+    HAL_Init();
+    SystemClock_Config();                  // 8 MHz HSE × 9 = 72 MHz
+    MX_GPIO_Init();
+    MX_USART1_UART_Init();
+
+    char buf[32];
+    while (1) {
+        int n = snprintf(buf, sizeof buf, "uptime: %lu ms\\r\\n", HAL_GetTick());
+        HAL_UART_Transmit(&huart1, (uint8_t *)buf, n, HAL_MAX_DELAY);
+        HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+        HAL_Delay(500);
+    }
+}`}
+      />
+      <CodeBlock
+        language="cpp"
+        filename="hello.ino (Arduino_Core_STM32)"
+        code={`// Board: "Generic STM32F1 series", part: F103C8 (or F103CB for genuine 128 KB silicon)
+// Upload method: STLink
+
+void setup() {
+  Serial.begin(115200);                    // USART1 on PA9/PA10 by default
+  pinMode(PC13, OUTPUT);                   // Blue Pill LED
+}
+
+void loop() {
+  Serial.printf("uptime: %lu ms\\r\\n", millis());
+  digitalWrite(PC13, !digitalRead(PC13));
+  delay(500);
+}`}
+      />
+      <CodeBlock
+        language="python"
+        filename="main.py (MicroPython, stm32 port)"
+        code={`# MicroPython for STM32 boots from a 'pyb' module. Flash the firmware via
+# dfu-util, then drop main.py onto the PYBFLASH USB drive.
+import time
+from pyb import LED, UART
+u = UART(1, 115200)                        # USART1 = pins PA9/PA10
+led = LED(1)
+t0 = time.ticks_ms()
+while True:
+    u.write("uptime: %d ms\\r\\n" % time.ticks_diff(time.ticks_ms(), t0))
+    led.toggle()
+    time.sleep_ms(500)`}
+      />
+      <h2>Peripherals and their realistic ceilings</h2>
+      <SpecTable
+        rows={[
+          [
+            "USART",
+            <>
+              3× on the F103, more on bigger parts. <strong>Up to 4.5 Mbaud</strong> in theory, <strong>921600</strong>{" "}
+              reliable in practice over USB-UART. DMA-capable on TX and RX.
+            </>,
+          ],
+          [
+            "I²C",
+            <>
+              2× hardware. <strong>100 kHz</strong> standard, <strong>400 kHz</strong> fast. The F1's I²C block is
+              infamous for getting stuck — see gotchas. Many designs replace it with bit-banged I²C or a software fix
+              from app note <strong>AN10987</strong>.
+            </>,
+          ],
+          [
+            "SPI",
+            <>
+              2× hardware. <strong>Up to 18 MHz</strong> on the F1 (clk/2 from 36 MHz APB), up to 42 MHz on F4. DMA-
+              capable. Half- and full-duplex.
+            </>,
+          ],
+          [
+            "ADC",
+            <>
+              2× 12-bit SAR @ <strong>1 MS/s</strong> each on the F1, 2.4 MS/s on F4. Dual-mode lets the two ADCs sample
+              simultaneously — useful for differential or three-phase current sensing. ENOB ~10.5 in the analog spec.
+            </>,
+          ],
+          [
+            "Timers",
+            <>
+              The peripheral the STM32 family is famous for. <strong>TIM1 advanced</strong>: dead-time-inserted
+              complementary PWM for 3-phase motor drive. <strong>TIM2–5 general</strong>: 16-bit (32-bit on F4 TIM2/5),
+              up/down/centre-aligned, encoder mode, capture/compare, DMA-coupled. Can chain master/slave for arbitrary
+              one-shot pulses.
+            </>,
+          ],
+          [
+            "USB FS",
+            <>
+              12 Mbps device only on the F103. F4 adds USB OTG (host + device). HID / CDC / MSC stacks are in ST's
+              <code>STM32_USB_Device_Library</code>; <code>tinyUSB</code> works too if you want lighter / multi-class.
+            </>,
+          ],
+          [
+            "DMA",
+            <>
+              7 channels on the F1, 16 streams across 2 controllers on the F4. Memory-to-memory, memory-to-peripheral,
+              circular mode for continuous ADC sampling — the basis for any audio or sensor-streaming firmware.
+            </>,
+          ],
+          [
+            "RCC (clocks)",
+            <>
+              The clock tree is the whole game on the STM32. CubeMX's clock GUI exists because getting AHB / APB1 / APB2
+              / timer / USB / ADC / SPI clocks all aligned at the right multipliers from one HSE crystal is genuinely
+              hard. The F103 caps APB1 at 36 MHz, APB2 at 72 MHz, USB at exactly 48 MHz — three constraints fed from one
+              8 MHz crystal × 9 PLL.
+            </>,
+          ],
+        ]}
+      />
+      <h2>Talking to an I²C sensor</h2>
+      <p>
+        Same BME280 wiring as the ESP32 page, different I²C block underneath. Cube generates the init; you write the
+        loop. PB6/PB7 are the default I²C1 pair; 4.7 kΩ pull-ups to 3.3 V; sensor V<sub>DD</sub> on 3V3, common ground.
+      </p>
+      <CodeBlock
+        language="c"
+        filename="bme280_read.c (HAL)"
+        code={`#include "main.h"
+extern I2C_HandleTypeDef hi2c1;
+#define BME_ADDR  (0x76 << 1)              // HAL uses 8-bit shifted addresses
+
+static HAL_StatusTypeDef bme_read(uint8_t reg, uint8_t *buf, uint16_t n) {
+    HAL_StatusTypeDef s = HAL_I2C_Master_Transmit(&hi2c1, BME_ADDR, &reg, 1, 100);
+    if (s != HAL_OK) return s;
+    return HAL_I2C_Master_Receive(&hi2c1, BME_ADDR, buf, n, 100);
+}
+
+int main(void) {
+    HAL_Init(); SystemClock_Config();
+    MX_GPIO_Init(); MX_I2C1_Init(); MX_USART1_UART_Init();
+
+    uint8_t id;
+    bme_read(0xD0, &id, 1);                // chip-id register → 0x60
+    char msg[40];
+    int n = snprintf(msg, sizeof msg, "BME280 chip id: 0x%02x\\r\\n", id);
+    HAL_UART_Transmit(&huart1, (uint8_t *)msg, n, HAL_MAX_DELAY);
+    while (1) { HAL_Delay(1000); }
+}`}
+      />
+      <Callout label="// 7-bit vs 8-bit I²C addresses">
+        STM32 HAL takes <strong>shifted</strong> 8-bit addresses (the protocol-level byte that includes the R/W bit). The
+        BME280's 7-bit address is 0x76, so you pass <code>0x76 &lt;&lt; 1 = 0xEC</code>. Other libraries pass 7-bit
+        addresses raw. Getting this wrong gives you "no device found" with the sensor sitting right on the bus —
+        a depressingly common first-day bug.
+      </Callout>
+      <h2>Gotchas</h2>
+      <ul>
+        <li>
+          <strong>F1 I²C is buggy.</strong> The hardware can lock up the bus if the line glitches during a transfer.
+          Symptom: <code>HAL_I2C_Master_Transmit</code> returns <code>HAL_TIMEOUT</code> forever after one bad cable
+          unplug. Fix per ST application note <strong>AN10987</strong>: manually clock SCL 9 times with the peripheral
+          disabled, reset the I²C block, re-init. Or use the F1's bit-banged software I²C — the F4/L4/G4 hardware blocks
+          fixed this entirely.
+        </li>
+        <li>
+          <strong>The clock tree is the whole game.</strong> Forget to enable an APB clock and the peripheral silently
+          does nothing — no error, no warning. <code>__HAL_RCC_GPIOC_CLK_ENABLE()</code> is the single most-forgotten
+          line in STM32 firmware. CubeMX generates these for the peripherals you ask for; check the generated init
+          when something "should work but doesn't."
+        </li>
+        <li>
+          <strong>Counterfeit Blue Pills.</strong> Already covered above, repeated because every newcomer is bitten. If
+          you cross the 32 KB threshold on a board that claims 64 KB, you're on a relabeled F103C6. Check the FSIZE
+          register at <code>0x1FFFF7E0</code> at runtime.
+        </li>
+        <li>
+          <strong>PC13 LED is current-limited.</strong> 3 mA max on the F103's RTC-domain pins. The Blue Pill LED works
+          fine; do not try to drive a transistor or another LED off PC13 without a buffer.
+        </li>
+        <li>
+          <strong>5V-tolerant ≠ 5V-powered.</strong> Most STM32 pins can <em>accept</em> a 5 V digital input on the
+          datasheet's "FT" pins, but V<sub>DD</sub> is still 3.3 V — output high is 3.3 V, not 5 V. If you need 5 V
+          out, use a level shifter or an open-drain + pull-up.
+        </li>
+        <li>
+          <strong>USB and CAN share resources.</strong> On the F103 the USB and bxCAN blocks share the packet memory
+          SRAM — you can use either, but not both at the same time. Bigger parts (F405) separate them.
+        </li>
+        <li>
+          <strong>BOOT1 is a GPIO too.</strong> BOOT1 lives on PB2. Once boot is done, BOOT1 is general-purpose GPIO — but
+          if you drive it high while reset is pulsed, you'll accidentally enter the ROM bootloader and your firmware
+          won't run. Pull it down or leave it floating in your hardware design.
+        </li>
+        <li>
+          <strong>SWD pins (PA13/PA14) get repurposed by accident.</strong> If your firmware sets PA13/PA14 to a
+          non-SWD alternate function, the chip becomes unprogrammable by ST-Link — the debugger can't get a halt in
+          edgewise. Recovery: hold NRST low while powering up, then attach the debugger and erase. <code>st-flash
+          erase</code> with NRST held works; CubeProgrammer has a "Connect under reset" toggle for the same thing.
+        </li>
+        <li>
+          <strong>Power-up sequence matters for V<sub>BAT</sub>.</strong> V<sub>BAT</sub> domains have their own quirks
+          on STM32 — the LSE oscillator and backup registers stay alive on a CR2032. If your hardware doesn't have a
+          coin cell on V<sub>BAT</sub>, tie it to V<sub>DD</sub>; leaving it floating causes mysterious resets on some
+          revisions.
+        </li>
+      </ul>
+    </>
+  ),
   "c-1n4148": () => (
     <>
       <h2>What it is</h2>
