@@ -38,7 +38,12 @@ export type Element =
    *  `A0` is DC open-loop gain (dimensionless); `GBW` is the gain-bandwidth
    *  product in Hz (the frequency where |A(jω)| crosses unity). Requires
    *  negative feedback in the surrounding circuit; otherwise the matrix
-   *  is singular (ideal) or numerically dominated by A0 (finite GBW). */
+   *  is singular (ideal) or numerically dominated by A0 (finite GBW).
+   *
+   *  Optional `SR` (slew rate, V/s) is a hard cap on the magnitude of
+   *  dV_out/dt — a large-signal limit on top of the small-signal GBW.
+   *  Applied in transient analysis only; AC and DC analyses ignore it
+   *  since slew is a large-signal phenomenon. Omit for "infinite slew". */
   | {
       kind: "OP";
       id: string;
@@ -47,6 +52,7 @@ export type Element =
       vout: string;
       A0?: number;
       GBW?: number;
+      SR?: number;
     }
   /** Shockley diode. Anode = a, cathode = b. Forward current flows a → b.
    *  I_D = Is · (exp(V_D / (N·Vt)) − 1). All three model params default to a

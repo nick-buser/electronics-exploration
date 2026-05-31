@@ -11,6 +11,7 @@ import { CommonEmitterDemo } from "@/circuits/CommonEmitterDemo";
 import { CommonEmitterBodeDemo } from "@/circuits/CommonEmitterBodeDemo";
 import { NmosSwitchDemo } from "@/circuits/NmosSwitchDemo";
 import { GbwTradeoffDemo } from "@/circuits/GbwTradeoffDemo";
+import { SlewRateDemo } from "@/circuits/SlewRateDemo";
 import { DemoPWM } from "@/demos/DemoPWM";
 import { DemoBus } from "@/demos/DemoBus";
 import { DemoPID } from "@/demos/DemoPID";
@@ -393,6 +394,34 @@ void loop() {
         open-loop curve at high frequency. They all cross 0 dB (unity gain) at exactly GBW. Drag GBW up and the whole family
         translates right; drag A₀ down and the open-loop plateau lowers but the unity-gain crossover stays put — because GBW
         is GBW.
+      </p>
+      <h2>Slew rate — the large-signal speed limit</h2>
+      <p>
+        GBW is a <em>small-signal</em> spec. Push the input hard enough that the integrator inside the op-amp can't keep up
+        — typically because the differential pair driving the dominant-pole cap runs out of bias current — and the output
+        ramps at a fixed maximum rate regardless of what the feedback network asks for. That rate is the part's{" "}
+        <strong>slew rate</strong>: 0.5 V/µs for a 741, 50 V/µs for an OPA134, a few hundred V/µs for high-speed parts. The
+        consequence is a hard cap on the largest sine you can faithfully reproduce at a given frequency. A 10 V<sub>pp</sub>{" "}
+        sine at 100 kHz has a peak slope of <code>2π · f · V_peak</code> = 3.14 V/µs — fine for the OPA134 but already past
+        the 741's headline number, even though both have plenty of gain-bandwidth.
+      </p>
+      <Callout label="// math">
+        Full-power bandwidth: f<sub>FP</sub> = SR / (2π · V<sub>peak</sub>) &nbsp;·&nbsp; max sine ampl @ f: V<sub>peak</sub>
+        = SR / (2π · f)
+      </Callout>
+      <p>
+        The simulator's op-amp accepts an optional <code>SR</code> parameter (V/s). When set, transient analysis caps{" "}
+        |dV<sub>out</sub>/dt| at ±SR per step. Implementation is an outer slew loop on top of Newton: each timestep solves
+        with the normal finite-GBW stamp, checks whether V<sub>out</sub> moved more than dt·SR, and if so re-solves with V
+        <sub>out</sub> = V<sub>out</sub>(t−dt) ± dt·SR forced — the V+/V− inputs contribute nothing to the row, because the
+        output stage is saturated by physical current limits regardless of what the feedback network demands. AC and DC
+        analyses ignore SR by design — slew is a large-signal phenomenon.
+      </p>
+      <SlewRateDemo />
+      <p>
+        Pull SR down in the demo and the unity-gain buffer stops following the square wave — the trace becomes a triangle
+        ramping at exactly ±SR per leg. Bring SR back up and the output snaps back to faithful tracking once it can outrun
+        the input edges. Push the frequency up and the same SR isn't enough anymore.
       </p>
       <h2>Where the model breaks</h2>
       <ul>

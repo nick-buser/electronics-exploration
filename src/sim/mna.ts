@@ -362,11 +362,28 @@ export function solveStep(
     mosVdsIter.set(m.id, state.mosVds.get(m.id) ?? 0);
   }
 
+  // Outer slew loop: large-signal op-amp output is hard-capped at ±SR.
+  // We solve normally first; if any slew-rate-limited op-amp moves V_out
+  // by more than dt·SR in one step, we force V_out to slew and re-solve.
+  // The state-space (one ternary per op-amp) is small so this settles in
+  // 1–2 outer passes in practice.
+  const slewable: Extract<Element, { kind: "OP" }>[] = isFinite(dt)
+    ? circuit.elements.filter(
+        (e): e is Extract<Element, { kind: "OP" }> =>
+          e.kind === "OP" && e.SR != null && e.SR > 0,
+      )
+    : [];
+  const opSlew = new Map<string, 1 | -1>();
+  const maxSlewOuter = slewable.length > 0 ? 4 : 1;
+
   let result: StepResult | null = null;
+  let totalIters = 0;
+  for (let slewPass = 0; slewPass < maxSlewOuter; slewPass++) {
   let iters = 0;
   while (iters < maxIter) {
-    result = solveOneIteration(circuit, state, t, dt, diodeIter, bjtVbeIter, bjtVbcIter, mosVgsIter, mosVdsIter);
+    result = solveOneIteration(circuit, state, t, dt, diodeIter, bjtVbeIter, bjtVbcIter, mosVgsIter, mosVdsIter, opSlew);
     iters++;
+    totalIters++;
 
     if (nonlinear === 0) break;
 
@@ -427,6 +444,33 @@ export function solveStep(
     throw new Error(`solveStep: Newton did not converge within ${maxIter} iters at t=${t}`);
   }
 
+  // Slew check — update opSlew based on this pass's V_out and re-Newton
+  // if any op-amp crossed into or out of its slew limit.
+  if (slewable.length === 0) break;
+  let slewChanged = false;
+  for (const op of slewable) {
+    const vOutNew = result.vop[op.id] ?? 0;
+    const vOutPrev = state.opVout.get(op.id) ?? 0;
+    const delta = vOutNew - vOutPrev;
+    const maxDelta = dt * (op.SR ?? 0);
+    const oldStatus = opSlew.get(op.id);
+    let newStatus: 1 | -1 | undefined;
+    if (Math.abs(delta) > maxDelta * 1.0001) {
+      newStatus = delta > 0 ? 1 : -1;
+    } else {
+      newStatus = undefined;
+    }
+    if (oldStatus !== newStatus) {
+      if (newStatus === undefined) opSlew.delete(op.id);
+      else opSlew.set(op.id, newStatus);
+      slewChanged = true;
+    }
+  }
+  if (!slewChanged) break;
+  }
+  if (!result) throw new Error("solveStep: outer slew loop produced no result");
+  void totalIters;
+
   // Recompute final element currents from the converged iterates so they
   // match what the companion stamp used on the last successful pass.
   for (const d of diodes) {
@@ -473,6 +517,9 @@ function solveOneIteration(
   bjtVbcIter: Map<string, number>,
   mosVgsIter: Map<string, number>,
   mosVdsIter: Map<string, number>,
+  /** Slew direction per op-amp: +1 for slewing up at +SR, -1 for slewing
+   *  down at -SR, or absent for "use the normal stamp". */
+  opSlew: Map<string, 1 | -1>,
 ): StepResult {
   const nNodes = state.nodes.names.length;
   const internalN = nNodes - 1;
@@ -557,7 +604,15 @@ function solveOneIteration(
     const iVp = state.nodes.index.get(e.vplus) ?? 0;
     const iVm = state.nodes.index.get(e.vminus) ?? 0;
     if (iVout > 0) A[iVout - 1][row] += 1;
-    if (e.A0 != null && e.GBW != null) {
+    const slew = opSlew.get(e.id);
+    if (slew && isFinite(dt)) {
+      // Slew-rate limited: force V_out = V_out_prev ± dt·SR. V+/V- contribute
+      // nothing — the output stage is saturated by physical current limits
+      // regardless of what the feedback network wants.
+      const vOutPrev = state.opVout.get(e.id) ?? 0;
+      if (iVout > 0) A[row][iVout - 1] += 1;
+      z[row] += vOutPrev + slew * dt * (e.SR ?? 0);
+    } else if (e.A0 != null && e.GBW != null) {
       const A0 = e.A0;
       const tau = A0 / (2 * Math.PI * e.GBW);
       const G = isFinite(dt) ? tau / dt : 0; // 0 collapses to DC: V_out = A0·(V+ - V-)
