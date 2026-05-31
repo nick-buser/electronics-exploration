@@ -4269,6 +4269,227 @@ void loop() {
       </ul>
     </>
   ),
+  "c-dc-motor": () => (
+    <>
+      <h2>What it is</h2>
+      <p>
+        A <strong>brushed DC motor</strong> is the oldest practical electric motor design — Faraday's setup with
+        better magnets. A rotor wound with several coils of copper sits inside a stator made of permanent magnets
+        (or, for industrial parts, more electromagnets). Current through a rotor coil pushes against the stator
+        field via the Lorentz force, twisting the rotor. To keep the twist going past 90°, a mechanical{" "}
+        <strong>commutator</strong> on the rotor shaft swaps which coil is energised every time the rotor passes
+        a magnetic pole, using sprung carbon <strong>brushes</strong> as the sliding contact. Apply DC, get
+        continuous rotation; reverse polarity, reverse direction.
+      </p>
+      <p>
+        This page covers the small-to-medium brushed DC motor you'll find in any maker context: the canonical
+        "yellow gear motor" (~$2), Pololu micro metal gearmotors (~$15), the larger 12 V hobby motor (RS-555,
+        ~$8), and the 130-size toy motors in cheap kits. For the drive electronics, we anchor on Toshiba's{" "}
+        <strong>TB6612FNG</strong> dual H-bridge — the ~$2 chip that has eclipsed the older L298N for any project
+        that values efficiency over a heatsink.
+      </p>
+      <h2>Motor specs at a glance</h2>
+      <SpecTable
+        rows={[
+          ["Rated voltage", "1.5 V (toy motor), 3 V (TT gear motor), 6 V (micro metal), 12 V (RS-555, hobby)"],
+          ["No-load current", "20–100 mA depending on size — the bearing friction + windage tax"],
+          ["Stall current", "5–20× no-load — the current at zero RPM when the motor is mechanically locked"],
+          ["Free-run speed", "5,000–20,000 RPM at the shaft. Gear motors knock this down by 50–500×"],
+          ["Stall torque", "Tens to hundreds of mN·m on small motors. Linearly proportional to current"],
+          ["Efficiency", "30–70 % at the best operating point, much worse at the extremes"],
+          ["Lifetime", "Brushed: 1k–10k hours, set by brush wear. Brushless: 10k–100k hours"],
+        ]}
+      />
+      <h2>How it actually works</h2>
+      <p>
+        Apply voltage to the brushes. Current flows through one rotor coil at a time (the commutator picks which).
+        The coil sits in the stator's magnetic field; current × field × length = force on the wire (the Lorentz
+        force), which becomes torque about the shaft. The rotor turns. As it turns, the commutator switches to the
+        next coil, so torque is always applied in the rotational direction.
+      </p>
+      <p>
+        But the same moving coil generating mechanical rotation also{" "}
+        <strong>generates a voltage of its own</strong> — the magnetic field changing as the coil moves induces an
+        EMF opposing the applied voltage (Faraday again, this time backwards). This is the{" "}
+        <strong>back-EMF</strong>, and it's the most important behaviour to understand about DC motors:
+      </p>
+      <Callout label="// math">
+        V<sub>applied</sub> = I · R<sub>winding</sub> + K<sub>e</sub> · ω &nbsp;·&nbsp; T<sub>shaft</sub> = K
+        <sub>t</sub> · I &nbsp;·&nbsp; K<sub>e</sub> ≈ K<sub>t</sub> (in SI units)
+      </Callout>
+      <ul>
+        <li>
+          At <strong>stall</strong> (ω = 0): no back-EMF, only winding resistance limits current — that's why stall
+          current is so high.
+        </li>
+        <li>
+          At <strong>free run</strong> (no load): the motor accelerates until back-EMF nearly equals applied voltage.
+          Tiny current, just enough to overcome friction.
+        </li>
+        <li>
+          In between: speed self-regulates around the operating point where (V − K<sub>e</sub>·ω) / R provides exactly
+          the current to make the torque match the load.
+        </li>
+      </ul>
+      <h2>The H-bridge — TB6612FNG</h2>
+      <p>
+        A motor needs four switches in an "H" configuration to be driven bidirectionally: two high-side switches and
+        two low-side switches around the motor terminals. Close the diagonals to push current one way; close the
+        other diagonal to reverse. Close both bottoms (or both tops) to short the motor terminals — that's the brake.
+        Open everything for coast.
+      </p>
+      <p>
+        Doing this with discrete MOSFETs is a six-component circuit per side. The TB6612FNG packs both H-bridges,
+        the gate drivers, the level shifter, and shoot-through protection into one SSOP-24 for under $2:
+      </p>
+      <SpecTable
+        rows={[
+          [<>V<sub>M</sub></>, "Motor supply, 4.5 – 13.5 V"],
+          [<>V<sub>CC</sub></>, "Logic supply, 2.7 – 5.5 V (matches your MCU)"],
+          ["Output current", "1.2 A continuous per channel, 3.2 A peak"],
+          [<>R<sub>DS(on)</sub></>, "0.5 Ω high-side + 0.5 Ω low-side per channel"],
+          ["Inputs per motor", "AIN1, AIN2 (direction), PWMA (speed). Same for B"],
+          ["STBY", "Active-low standby — pull HIGH to enable both bridges"],
+          ["PWM frequency", "Up to 100 kHz — but 20 kHz is a sweet spot (above audible, below switching losses)"],
+        ]}
+      />
+      <h2>The four motor states</h2>
+      <SpecTable
+        rows={[
+          [
+            <>AIN1=1, AIN2=0, PWM</>,
+            <><strong>Forward</strong> at duty fraction. High-side A and low-side B switch ON for the PWM
+            duty fraction; both low-sides ON during the off fraction (synchronous freewheel)</>,
+          ],
+          [
+            <>AIN1=0, AIN2=1, PWM</>,
+            <><strong>Reverse</strong> at duty fraction. Mirror of forward</>,
+          ],
+          [
+            <>AIN1=1, AIN2=1, any PWM</>,
+            <><strong>Brake</strong>. Both low-side switches ON — motor terminals shorted, back-EMF dumps as
+            current through the bridge, motor decelerates fast</>,
+          ],
+          [
+            <>AIN1=0, AIN2=0, any PWM</>,
+            <><strong>Coast</strong>. All four switches OFF. Motor freewheels, no current, decelerates slowly
+            via friction only</>,
+          ],
+        ]}
+      />
+      <p>
+        PWM speed control on the TB6612FNG uses <strong>sign + magnitude</strong>: AIN1/AIN2 set the direction,
+        PWMA modulates the duty cycle. This is the "fast decay" mode — between PWM pulses the bridge actively
+        brakes (synchronous freewheel through the low-sides), giving the best speed control linearity. The L298N's
+        "slow decay" alternative coasts between pulses, which is less linear but easier on the supply.
+      </p>
+      <CodeBlock
+        language="cpp"
+        filename="tb6612_drive.ino"
+        code={`// One motor on the A side of a TB6612FNG.
+const int AIN1 = 4, AIN2 = 5, PWMA = 6, STBY = 7;
+
+void setup() {
+  pinMode(AIN1, OUTPUT); pinMode(AIN2, OUTPUT);
+  pinMode(PWMA, OUTPUT); pinMode(STBY, OUTPUT);
+  digitalWrite(STBY, HIGH);    // enable the bridge
+}
+
+void drive(int signedSpeed) {
+  // signedSpeed: -255 to +255
+  if (signedSpeed >= 0) {
+    digitalWrite(AIN1, HIGH); digitalWrite(AIN2, LOW);
+    analogWrite(PWMA, signedSpeed);
+  } else {
+    digitalWrite(AIN1, LOW);  digitalWrite(AIN2, HIGH);
+    analogWrite(PWMA, -signedSpeed);
+  }
+}
+
+void brake()  { digitalWrite(AIN1, HIGH); digitalWrite(AIN2, HIGH); }
+void coast()  { digitalWrite(AIN1, LOW);  digitalWrite(AIN2, LOW);  }
+
+void loop() {
+  drive(200);  delay(1000);    // forward fast
+  drive(0);    delay(200);
+  drive(-100); delay(1000);    // reverse slow
+  brake();     delay(500);
+}`}
+      />
+      <h2>Driver alternatives</h2>
+      <Compare
+        header={["", "Voltage / Current", "Notable"]}
+        rows={[
+          ["TB6612FNG", "4.5–13.5 V / 1.2 A cont", "This page. MOSFET bridge, efficient, no heatsink needed"],
+          ["L298N", "5–46 V / 2 A cont", "Bipolar darlington bridge. ~2 V drop per side, hot. Legacy"],
+          ["DRV8833", "2.7–10.7 V / 1.5 A cont", "TI's MOSFET bridge. Lower voltage than TB6612 but smaller"],
+          ["DRV8871", "6.5–45 V / 3.6 A cont", "Higher-voltage TI part for larger motors"],
+          [<>BTS7960 / IBT-2</>, "5.5–27 V / 43 A peak", "Half-bridges paired for big motors (RC cars, e-bikes)"],
+          [<>VNH5019 / Pololu</>, "5.5–24 V / 12 A cont", "ST's auto-grade smart half-bridge with current sense"],
+        ]}
+      />
+      <h2>Closing the loop with an encoder</h2>
+      <p>
+        Open-loop PWM gets you ~80 % of motor control: set duty cycle, get approximate speed. For the last 20 %
+        (constant RPM under varying load, position control, dead reckoning), add a quadrature{" "}
+        <strong>encoder</strong> on the shaft and a PID loop in firmware. The micro metal gearmotors come with
+        magnetic encoders (Hall sensor on a magnet on the back of the rotor); larger motors get optical encoders.
+        See <a href="#/pr-pid">pr-pid</a> for the loop math.
+      </p>
+      <h2>Gotchas</h2>
+      <ul>
+        <li>
+          <strong>Brushed DC motors generate inductive flyback.</strong> When you switch off current to an
+          inductor (the motor windings are inductive), the field collapses and induces a high-voltage spike that
+          can punch through your driver's body diodes or worse. The TB6612FNG handles it with internal Schottky
+          flyback diodes; if you build your own H-bridge from discrete MOSFETs, add Schottky diodes across each
+          switch and a ceramic across each motor terminal.
+        </li>
+        <li>
+          <strong>EMI from the brushes.</strong> Mechanical commutation arcs at high frequency, which gets
+          radiated through the motor leads as broadband noise. Symptom: USB drops, sensor reads garbage, Wi-Fi
+          throughput halves the moment a motor spins. Mitigation: a <strong>100 nF ceramic across the motor
+          terminals</strong> (right on the motor case), plus 10 nF from each terminal to the motor's case if it's
+          grounded. Ferrite beads on the leads help further.
+        </li>
+        <li>
+          <strong>Stall current can be 10× nominal.</strong> A "1 A nominal" motor draws 8 A when you ask it to
+          turn against a locked rotor. If your driver is sized to nominal and your code doesn't detect stall,
+          you'll trip the driver's over-current shutdown or melt something. Always size the driver for stall, or
+          implement a stall-current trip in firmware.
+        </li>
+        <li>
+          <strong>Back-EMF can charge your supply.</strong> Stop a motor that's spinning at speed and the back-EMF
+          dumps energy back into V<sub>M</sub>. If V<sub>M</sub> is from a battery, it sinks the energy fine. If
+          it's from an LDO or a small switcher with no sink, the rail voltage climbs and resets your MCU. Mitigate
+          with a beefy bulk cap (470 µF +) on V<sub>M</sub>, or a TVS to clamp the spike.
+        </li>
+        <li>
+          <strong>The L298N is obsolete; don't use it for new designs.</strong> ~4 V total drop across the bridge
+          (bipolar darlingtons), enormous heatsink required, only 60 % of your supply voltage actually reaches the
+          motor. The TB6612FNG / DRV8833 are better in every dimension for sub-2 A loads. Tutorials still
+          recommend the L298N because the modules are everywhere — ignore them.
+        </li>
+        <li>
+          <strong>PWM frequency below 20 kHz is audible.</strong> 1 kHz PWM through a motor gives the unmistakable
+          1 kHz whine that's the soundtrack of every cheap RC car. Above 20 kHz human ears stop hearing it (cats
+          and dogs disagree). Stay below ~50 kHz to avoid switching losses in the bridge.
+        </li>
+        <li>
+          <strong>Brushed motors have a lifetime.</strong> Carbon brushes wear, the commutator pits, and after
+          a few thousand hours of use the motor stops conducting reliably. For products that need to run for
+          years (HVAC fans, fridge compressors), use a brushless DC (BLDC) motor and a more elaborate driver — see
+          the DRV8323 page for FOC drive.
+        </li>
+        <li>
+          <strong>Don't share a supply between the motor and a sensitive analog rail.</strong> Motor switching
+          transients on V<sub>M</sub> couple through any shared ground or supply impedance, polluting ADC reads
+          and analog references. Split rails (separate buck for motors, LDO for analog), star-grounding, and a
+          ferrite between domains are the canonical fixes.
+        </li>
+      </ul>
+    </>
+  ),
 };
 
 export const JournalBodies: Record<string, Body> = {
