@@ -4904,6 +4904,207 @@ void loop() {
       </ul>
     </>
   ),
+  "c-ssd1306": () => (
+    <>
+      <h2>What it is</h2>
+      <p>
+        Solomon Systech's <strong>SSD1306</strong> is a 128 × 64 monochrome OLED controller — the chip-on-glass IC
+        bonded to the back of every cheap 0.96" and 1.3" OLED display module sold for under $5. Inside the controller:
+        a 1 KB display RAM (one bit per pixel), a charge-pump that generates the ~7 V drive voltage from a single 3.3 V
+        rail, and column / row driver outputs that feed an organic-LED panel one pixel at a time. You wire up I²C
+        (or SPI), push a framebuffer over the bus, and a moment later the image appears.
+      </p>
+      <p>
+        The displays themselves come in three common forms: <strong>0.96" 128×64</strong> (the default — white or blue
+        or yellow-and-blue split), <strong>1.3" 128×64</strong> (often actually an SH1106 controller, which is
+        compatible but not identical — see gotchas), and <strong>0.91" 128×32</strong> (smaller, for status-bar use).
+        All use the same SSD1306 register set; libraries handle the size difference at <code>begin()</code> time.
+      </p>
+      <p>
+        OLED is the right tech for battery-powered devices. There's no backlight — each pixel emits its own light —
+        so "all black" actually draws ~0 mA. A typical display showing a thin clock face draws ~10 mA; "everything
+        on at max brightness" hits ~50 mA. Compare with a backlit 16×2 LCD that draws ~30 mA even when blank.
+      </p>
+      <h2>Datasheet at a glance</h2>
+      <SpecTable
+        rows={[
+          [<>V<sub>DD</sub></>, "1.65 – 3.3 V (logic). VCC for the panel is 7 V — generated internally by a charge pump or supplied externally"],
+          [<>I<sub>DD</sub></>, "10 µA (display off), ~10 mA (typical content), ~30–50 mA (all pixels on at full brightness)"],
+          ["Display resolution", "128 × 64 pixels (most modules), 128 × 32 (slim variant)"],
+          ["Colour", "Monochrome — pixels are either on or off, no greyscale. Some modules are 'white' OLEDs, some 'blue,' some yellow/blue split"],
+          ["Display RAM", "1024 bytes (= 128 × 64 / 8). Organised as 8 pages × 128 columns of 8 vertical pixels each"],
+          ["Interface", "I²C (2-wire, slow but tidy), 4-wire SPI (fast), or 8-bit parallel (rare)"],
+          ["I²C address", "0x3C (most modules) or 0x3D (with SA0 jumper). Always probe both"],
+          ["I²C max clock", "400 kHz (Fast Mode). The chip technically supports up to 1 MHz but boards rarely qualify"],
+          ["Brightness control", "8-bit contrast register (0–255). Linear-ish"],
+          ["Lifetime", "10 000 – 40 000 hours to half-brightness, depending on average duty cycle"],
+        ]}
+      />
+      <h2>How OLEDs work</h2>
+      <p>
+        Each pixel is a stack of organic semiconductor layers sandwiched between an indium-tin-oxide transparent
+        anode and a metal cathode. Apply a forward voltage of ~3 V across the stack and electrons + holes recombine
+        inside the emissive layer, releasing photons (the same physics as an LED, just done in thin-film polymer
+        instead of a crystalline pn junction). The pixel brightness is set by the current through it; the SSD1306's
+        column drivers source a controlled current for each lit pixel during its row's scan interval.
+      </p>
+      <p>
+        Because the pixel is a current source running into an organic emitter, the chip needs a higher voltage than
+        V<sub>DD</sub> to drive it. The SSD1306 contains a <strong>charge-pump</strong> that generates 7 V from the
+        3.3 V rail using two external capacitors (always populated on the module — you never see this circuit). The
+        7 V is the panel's V<sub>CC</sub>.
+      </p>
+      <Callout>
+        OLED pixels degrade in proportion to their on-time and average current — the "burn-in" problem you see on
+        old phone screens. The SSD1306's 10–40 k-hour rating is for the brightest pixels at maximum drive. If your
+        UI keeps the same icon in the same spot for years, that icon will be visibly dimmer than the rest of the
+        screen. For products with long-life requirements, animate static content or use a lower contrast setting.
+      </Callout>
+      <h2>Wiring an I²C SSD1306</h2>
+      <SpecTable
+        rows={[
+          [<>V<sub>CC</sub></>, "3.3 V (most modules accept 5 V via an onboard LDO too)"],
+          ["GND", "Common ground"],
+          ["SDA", "I²C data, 4.7 kΩ pull-up to V_DD (usually populated on the module)"],
+          ["SCL", "I²C clock, 4.7 kΩ pull-up"],
+          [
+            "RST (some modules)",
+            <>Active-low reset. If broken out, tie to a GPIO and pulse LOW at boot for reliability. If not broken
+            out, the module has an internal RC reset that's fine for most cases</>,
+          ],
+        ]}
+      />
+      <p>
+        Two wires plus power. The pull-ups are almost always already on the breakout — verify with a multimeter
+        from SDA / SCL to V<sub>CC</sub> if the display doesn't respond. The I²C address is selectable on some
+        modules via a 0 Ω jumper near the controller; default is <strong>0x3C</strong>, alternate is 0x3D.
+      </p>
+      <h2>Drawing text and graphics</h2>
+      <CodeBlock
+        language="cpp"
+        filename="ssd1306_hello.ino"
+        code={`#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+
+#define SCREEN_WIDTH  128
+#define SCREEN_HEIGHT 64
+Adafruit_SSD1306 oled(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);  // -1 = no RST pin
+
+void setup() {
+  Wire.begin();
+  if (!oled.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println("OLED not found at 0x3C, trying 0x3D");
+    oled.begin(SSD1306_SWITCHCAPVCC, 0x3D);
+  }
+
+  oled.clearDisplay();
+  oled.setTextSize(2);                  // 2× scale = 12×16 px characters
+  oled.setTextColor(SSD1306_WHITE);
+  oled.setCursor(0, 0);
+  oled.println("Hello,");
+  oled.println("world!");
+  oled.drawCircle(96, 48, 12, SSD1306_WHITE);
+  oled.fillRect(10, 50, 20, 8, SSD1306_WHITE);
+  oled.display();                       // push the framebuffer to the panel
+}
+
+void loop() {}`}
+      />
+      <p>
+        Adafruit's library keeps a full 1 KB framebuffer in RAM, you draw into it with familiar
+        line/rect/text/bitmap calls, and <code>display()</code> blits the whole thing to the SSD1306 over I²C in
+        one ~30 ms burst. The <code>u8g2</code> library does the same job with finer control (bigger font set,
+        page-buffered drawing for tighter RAM budgets) and works on AVR with 1 KB of total SRAM.
+      </p>
+      <Callout label="// the GDDRAM layout">
+        The SSD1306's display RAM is organised as <strong>8 pages × 128 columns</strong>, where each byte is 8
+        vertical pixels (LSB at the top). To draw a pixel at (x, y), you set bit <code>y &amp; 7</code> in byte
+        <code> (y / 8) * 128 + x</code>. Direct register pokes for tight inner loops; libraries hide this for the
+        common case.
+      </Callout>
+      <h2>I²C vs SPI</h2>
+      <Compare
+        header={["", "Speed", "Pins", "Use when"]}
+        rows={[
+          ["I²C SSD1306", "~30 ms / full frame at 400 kHz", "2 (SDA, SCL) + power", "Slow UI updates, sharing the bus with other I²C sensors. The default"],
+          ["4-wire SPI SSD1306", "~3 ms / full frame at 8 MHz", "4 (SCK, MOSI, DC, CS) + power", "Animation, partial updates, smooth scrolling. SPI breakouts are slightly more expensive"],
+          ["3-wire SPI", "Same as 4-wire", "3 (SCK, MOSI, CS) + power", "Encodes the D/C bit in a 9th SPI bit. Rare, libraries support but uncommon"],
+        ]}
+      />
+      <p>
+        Most modules ship as I²C by default; switching to SPI usually requires moving a resistor on the back of the
+        board (BS1 / BS2 strapping pins). For static UIs (sensor readouts updating once per second), I²C is fine.
+        For anything animated (scrolling text, real-time graphs, games), SPI is worth the extra pins.
+      </p>
+      <h2>SSD1306 vs SH1106 vs SSD1309</h2>
+      <p>
+        The mid-range "1.3-inch OLED" modules sold for ~$3 often look identical to a 0.96" SSD1306 but contain a
+        Sino Wealth <strong>SH1106</strong> controller — almost-but-not-quite compatible. The difference: the
+        SH1106 has 132 × 64 internal RAM (yes, 132, not 128) and centers the 128-pixel-wide panel within it,
+        offset by 2 columns. Init the SH1106 with the SSD1306 library and the leftmost 2 columns of every drawn
+        line wrap to the wrong place. Symptom: text appears with the first 2 pixels of each line on the right
+        edge of the panel.
+      </p>
+      <SpecTable
+        rows={[
+          ["SSD1306", "128 × 64 internal RAM. The original. 0.96\" modules"],
+          ["SH1106", "132 × 64 internal RAM, 128 × 64 panel. 1.3\" modules. Different init, x-offset by 2"],
+          ["SSD1309", "128 × 64. Drop-in replacement, used in larger 2.42\" panels"],
+          ["SSD1322 / SSD1351", "Greyscale (4-bit) and full-colour OLED controllers — different chip, more registers"],
+        ]}
+      />
+      <p>
+        Adafruit_SH110X handles the SH1106 case; or use u8g2 which auto-detects via the constructor name.
+      </p>
+      <h2>Gotchas</h2>
+      <ul>
+        <li>
+          <strong>Address 0x3C or 0x3D, not 0x78.</strong> The datasheet lists the I²C address as 0x78 (the
+          shifted, write-direction byte). Most libraries take the 7-bit form (0x3C). If your library docs say
+          "0x78" and your scope shows "0x3C" on the wire, that's why.
+        </li>
+        <li>
+          <strong>SH1106 modules silently misalign with the SSD1306 library.</strong> Already flagged. If text
+          starts 2 pixels off the right edge and wraps, switch libraries.
+        </li>
+        <li>
+          <strong>The Adafruit library eats 1 KB of RAM.</strong> Fine on an STM32, ESP32, or RP2040. Tight on an
+          ATmega328 (Uno) where total SRAM is 2 KB — leaves you with 1 KB for everything else. <code>u8g2</code>'s
+          page-buffered mode uses 128 bytes at a time and is the better choice on small AVRs.
+        </li>
+        <li>
+          <strong>Burn-in is real.</strong> An SSD1306 driving a static UI for years will visibly show ghost
+          images of the heaviest-used elements. For products with long use cycles, animate logos / move UI
+          elements occasionally / dim the display when idle.
+        </li>
+        <li>
+          <strong>I²C bus contention with other devices.</strong> SSD1306 talks at the I²C level only when you
+          push a frame; in between it stays quiet. But a slow SDA pull-up + a long bus + a second device that
+          transmits while the OLED is mid-frame can corrupt the image. Don't share I²C buses across long
+          breadboards; use a hardware I²C mux (TCA9548A) for &gt; 4 devices.
+        </li>
+        <li>
+          <strong>Cheap modules ship with the wrong charge-pump cap.</strong> AliExpress modules occasionally
+          use the wrong external cap value — the display works dimly or flickers. Compare against a known-good
+          Adafruit unit if you suspect this; the fix is to replace one of two surface-mount caps near the chip.
+        </li>
+        <li>
+          <strong>SSD1306 doesn't have hardware double-buffering.</strong> The <code>display()</code> call
+          updates the panel in raster order — top-left to bottom-right, taking ~30 ms over I²C. A fast moving
+          object will be drawn with the top half showing the new frame and the bottom half the old, causing
+          visible tearing. SPI cuts the frame time by 10× and largely solves this.
+        </li>
+        <li>
+          <strong>Don't drive the panel's external V_CC pin directly from 3.3 V.</strong> Some bare-chip OLED
+          panels expose the 7 V V_CC line as a separate pin. The controller chip's charge-pump takes care of
+          this — but if you wire the V_CC pin to 3.3 V (thinking you're powering the chip), the panel runs
+          severely under-driven and pixels barely light. Tie V_CC to the external charge-pump cap or to an
+          external 7 V supply per the controller's app note.
+        </li>
+      </ul>
+    </>
+  ),
 };
 
 export const JournalBodies: Record<string, Body> = {
