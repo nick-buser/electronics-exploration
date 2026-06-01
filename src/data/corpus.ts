@@ -83,6 +83,7 @@ export const PRINCIPLES: Principle[] = [
   { type: "principle", slug: "pr-fft", title: "FFT & spectra", domain: "bio", deck: "Time → frequency. Where biosignal artifacts and band powers become legible." },
   { type: "principle", slug: "pr-opamp", title: "Op-amp", domain: "ee", deck: "Near-ideal feedback amplifier. Two resistors set the gain; the silicon takes care of everything else." },
   { type: "principle", slug: "pr-schmitt", title: "Schmitt trigger & hysteresis", domain: "ee", deck: "A comparator with two different trip points. The dead band between them is what makes relaxation oscillators (and the 555) work." },
+  { type: "principle", slug: "pr-power-source", title: "Powering a project", domain: "ee", deck: "Wall, bench, AA, USB pack, LiPo, LiFePO4 — picking the right source. With safety as a first-class concern for unattended deployment." },
 ];
 
 export const COMPARISONS: Comparison[] = [

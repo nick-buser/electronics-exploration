@@ -496,6 +496,349 @@ void loop() {
       </Callout>
     </>
   ),
+  "pr-power-source": () => (
+    <>
+      <h2>The bench is not the deployment</h2>
+      <p>
+        On the bench you have a <strong>Korad</strong> or similar variable-V / current-limit power supply, and it
+        solves every power problem during development: dial up the voltage, set a current limit lower than what
+        would damage anything, and watch the supply current-limit before anything melts. The Korad is your safety net
+        — it's the reason "I shorted V<sub>cc</sub> to ground" is a learning experience instead of a fire. But a
+        bench supply doesn't ship with the project. The moment you take the board off the bench, you need to pick
+        a real power source — and the right choice depends on five variables: <strong>average current</strong>,
+        <strong> peak current</strong>, <strong>voltage</strong>, <strong>runtime</strong>, and{" "}
+        <strong>where the project sits when it runs</strong>.
+      </p>
+      <p>
+        Most maker advice on the internet skips straight to "use a LiPo," which works for handheld and aerial
+        projects but is the wrong answer for static, plugged-in, or attended-by-children projects. The honest
+        picture has more options.
+      </p>
+      <h2>Wall plug — when you can use it, you should</h2>
+      <p>
+        The default for anything that lives on a desk, shelf, or fixed mount. Modern AC-to-DC wall adapters are
+        cheap, reliable, and have decades of safety regulation behind them. The main decision is which type of
+        adapter:
+      </p>
+      <SpecTable
+        rows={[
+          [
+            "Linear wall wart (legacy)",
+            <>The old brick with a transformer + bridge rectifier + filter cap. Heavy, ~60 % efficient. Unregulated
+            output sags under load. <strong>Don't buy new ones</strong> — they're around for legacy parts only</>,
+          ],
+          [
+            "Switching wall wart",
+            <>The modern default. ~85 – 90 % efficient, small and light, well-regulated. Look for{" "}
+            <strong>Energy Star Level VI</strong> or higher and either a UL / CE / FCC mark. 5 V / 1 – 3 A and
+            12 V / 1 – 5 A are the common ratings. ~$8 – $20</>,
+          ],
+          [
+            "USB-A 5 V supply (phone charger)",
+            <>A switching supply with a USB-A jack instead of a barrel. The most common form factor. Outputs 5 V
+            at ~1 – 2.4 A. Some old ones drop voltage badly under load; modern Quick Charge / PD chargers don't</>,
+          ],
+          [
+            "USB-C PD",
+            <>The right move for new builds. <strong>Power Delivery</strong> negotiates voltage and current
+            between source and sink: 5 / 9 / 12 / 15 / 20 V at up to 5 A = 100 W (PD 3.0). Pairs with a tiny PD
+            sink IC on your board (CH224K, IP2721) to request the rail you want</>,
+          ],
+          [
+            "Mains-direct PSU",
+            <>Skip the brick — Meanwell RS-15, RS-25 and friends, or a Mean Well IRM-10 right on your PCB. AC
+            in, regulated DC out. For deployed appliances and panel-mount installations</>,
+          ],
+          [
+            "PoE (Power over Ethernet)",
+            <>For network-connected projects. One cable carries data and ~12 W (PoE 802.3af) or 25 W (PoE+
+            802.3at). Common in security cameras, building automation</>,
+          ],
+        ]}
+      />
+      <Callout kind="warn" label="// counterfeit wall warts">
+        AliExpress and unbranded Amazon supplies routinely lie about their output capability and skip safety
+        certifications. A "12 V 5 A" supply that's really 12 V 1.5 A will brown out under load and could fail in
+        flames. For anything left unattended, buy a known brand (Mean Well, Phihong, RDL, Triad). The price
+        difference is $5 — worth it.
+      </Callout>
+      <h2>Disposable AA / AAA — still right sometimes</h2>
+      <p>
+        Alkaline AA, AAA, C, D, and 9 V batteries are the simplest possible power source. No charger, no
+        management circuit, no thermal-runaway risk, no fire hazard. Vendor reliability is high — Duracell and
+        Energizer cells from 5 years ago still work. For very low-current, long-runtime, deploy-and-forget
+        projects (door sensors, smoke detectors, low-power BLE beacons), single-use alkalines on an ESP-style
+        chip in deep sleep can last 1 – 5 years on a single cell.
+      </p>
+      <SpecTable
+        rows={[
+          ["AAA alkaline", "~1.5 V fresh, ~1000 mAh capacity at low current. ~10 g, ~$0.30 each"],
+          ["AA alkaline", "~1.5 V fresh, ~2500 mAh, ~23 g, ~$0.40 each. The default workhorse"],
+          ["C alkaline", "~1.5 V fresh, ~7500 mAh, ~67 g. Useful when you want AA flexibility but more runtime"],
+          ["D alkaline", "~1.5 V fresh, ~13000 mAh, ~140 g. Big and heavy, but last forever at low current"],
+          ["9 V", "Six AAAA cells in series. ~600 mAh, terrible value per mAh. Use only when 9 V is convenient"],
+          ["CR2032 coin cell", "3.0 V lithium primary, 200 mAh. The standard for BLE tags, watches, RAM-retention backup"],
+          ["CR123A", "3.0 V lithium primary, 1500 mAh. High-current capable, used in security devices, lasts 10 years on the shelf"],
+        ]}
+      />
+      <Callout label="// when alkaline is the right answer">
+        Average current &lt; 1 mA, runtime measured in months/years, the box stays put. A BME280 logger sampling
+        once a minute draws ~10 µA average — a single AA lasts <strong>~25 years</strong>, well past the cell's
+        self-discharge horizon. Don't over-engineer it.
+      </Callout>
+      <h2>NiMH rechargeables — the safe rechargeable</h2>
+      <p>
+        Nickel-metal-hydride AA/AAA cells (the modern descendant of NiCd) are the right rechargeable for anything
+        you care about safety on. They share alkaline's mechanical form factor, won't catch fire under abuse,
+        recycle ~1000 times, and modern "low self-discharge" variants like <strong>Panasonic Eneloop</strong> hold
+        90 % of their charge after a year. The compromise is nominal voltage: 1.2 V per cell instead of 1.5 V —
+        so a 4-cell pack gives 4.8 V instead of 6.0 V, which sometimes pushes you to use 5 cells.
+      </p>
+      <SpecTable
+        rows={[
+          [<>V<sub>nominal</sub></>, "1.2 V (vs 1.5 V alkaline). 1.4 V fresh off the charger, 1.0 V at end-of-discharge"],
+          ["Capacity", "~2000 mAh (Eneloop AA), ~800 mAh (Eneloop AAA), low-self-discharge variants are 80 % of high-capacity"],
+          ["Cycle life", "~500 – 1000 charge cycles. 10 year shelf life on Eneloops"],
+          ["Charge rate", "0.1 C (overnight) to 0.5 C (4 h). Don't fast-charge nicad-style — overheats"],
+          ["Discharge rate", "1 – 5 C continuous fine. Power tools used to use NiMH"],
+          ["Self-discharge", "~3 %/month for Eneloops. ~30 %/month for older / cheap cells"],
+          ["Safety", <>No thermal runaway. Worst-case failure is venting hydrogen gas — keep ventilated, don't seal in
+          plastic. <strong>Won't burn your house down</strong></>],
+        ]}
+      />
+      <p>
+        For unattended projects where you'd otherwise reach for lithium but the safety risk worries you, NiMH is
+        the under-appreciated answer. A 4×AA NiMH pack delivers ~10 Wh, weighs 100 g, and can sit in a kitchen
+        drawer for a decade without scaring you.
+      </p>
+      <h2>The lithium conversation — LiPo, 18650, and LiFePO4</h2>
+      <p>
+        Lithium batteries get scary headlines for good reasons: a damaged or overcharged lithium cell can enter
+        <strong> thermal runaway</strong>, where the chemistry's exothermic decomposition produces enough heat to
+        decompose more chemistry, releasing flammable gas, igniting the polymer separator, and producing a 600 °C
+        jet of burning lithium that's nearly impossible to extinguish. This is real, it has burned down houses,
+        and your concern is well-founded. But "lithium" is not one chemistry — and the chemistry you pick
+        matters enormously.
+      </p>
+      <SpecTable
+        rows={[
+          [
+            "LiPo (pouch, the RC default)",
+            <><strong>3.7 V nominal</strong>, lithium-cobalt-oxide or NMC cathode. Pouch in soft mylar.
+            Maximum energy density per kg. <strong>Most dangerous</strong>: pouch is easy to puncture, swells
+            visibly before failure (smell sweetness = abandon ship), thermal runaway risk is genuine. The
+            chemistry of every "smartphone exploded" headline</>,
+          ],
+          [
+            "Li-ion 18650 / 21700 (cylindrical)",
+            <><strong>3.7 V nominal</strong>, similar chemistry to LiPo but in a steel can with a sealed vent.
+            <strong> Much safer mechanically</strong> than pouch — the metal shell contains failure better,
+            the vent disc relieves pressure. Used in laptops, power tools, e-bikes, Teslas. Removable, swap
+            with caution</>,
+          ],
+          [
+            "LiFePO4 (lithium iron phosphate)",
+            <><strong>3.2 V nominal</strong>, iron-phosphate cathode instead of cobalt. The "safe lithium":
+            <strong> very high thermal-runaway threshold</strong>, won't catch fire under any normal abuse
+            (overcharge, puncture, short). Trade-off: ~30 % lower energy density than LiPo, longer cycle life
+            (~3000 cycles), longer self-discharge. Used in EV starter batteries, home solar storage, marine</>,
+          ],
+        ]}
+      />
+      <Callout>
+        <strong>Direct answer to your "LiPo scares me" question</strong>: it should. For unattended-at-home
+        projects, you almost certainly want <strong>LiFePO4</strong> or <strong>18650 Li-ion with a real BMS</strong>{" "}
+        — not a bare LiPo pouch. LiFePO4 18650 / 26650 cells exist and are dimensionally interchangeable with
+        regular Li-ion: same cell holders, same chargers (with LiFePO4 mode), but with thermal-runaway risk that's
+        an order of magnitude lower. The cost is ~30 % more weight for the same energy and a slightly lower
+        voltage that may need a boost converter.
+      </Callout>
+      <h2>The BMS — what makes lithium safe</h2>
+      <p>
+        Any lithium chemistry needs a <strong>Battery Management System</strong> — a small protection PCB that
+        guards against the failure modes the chemistry can't handle:
+      </p>
+      <SpecTable
+        rows={[
+          ["Over-voltage cutoff", "Disconnects charging at 4.2 V/cell (Li-ion) or 3.65 V/cell (LiFePO4). Prevents the runaway-triggering condition"],
+          ["Under-voltage cutoff", "Disconnects load at ~2.5 V/cell. Below this the cell is damaged permanently"],
+          ["Over-current cutoff", "Trips on short-circuit or load surge above the cell's rated continuous discharge"],
+          ["Over-temperature cutoff", "Thermistor on the pack; disconnects above ~60 °C"],
+          ["Cell balancing", "For multi-cell packs in series (2S, 3S, 4S). Brings all cells to the same voltage during charging"],
+        ]}
+      />
+      <p>
+        Most off-the-shelf lithium packs ship with a BMS already integrated. A bare 18650 from AliExpress
+        doesn't — pairing it with a TP4056 charge IC (single-cell) or a dedicated BMS module ($1 – $5) is the
+        non-negotiable next step. Without a BMS, lithium is a fire waiting to start.
+      </p>
+      <h2>USB power banks — the auto-shutoff trap</h2>
+      <p>
+        USB power banks look perfect for embedded projects: ready-made lithium pack, integrated BMS, certified
+        as safe (the good ones), 5 V USB output, rechargeable, plenty of capacity. They're great for high-current
+        loads like cameras, motors, or anything pulling &gt; 200 mA. But for sleeping MCUs they have one
+        infamous problem:
+      </p>
+      <Callout kind="warn" label="// the auto-shutoff problem">
+        Most consumer USB power banks <strong>shut off the output</strong> when load current drops below
+        ~50 – 100 mA. The bank's controller assumes "nothing's connected" and powers down to save its own
+        battery. An ESP32 in deep sleep drawing 30 µA looks like nothing to the bank — your sensor logger
+        runs for 30 seconds, then dies.
+      </Callout>
+      <p>
+        Solutions, in order of laziness:
+      </p>
+      <ol>
+        <li>
+          Buy a power bank explicitly marketed as <strong>"always-on"</strong> or "torch mode" (the LED-flashlight
+          banks usually qualify). Voltaic Systems and Voltset sell them
+        </li>
+        <li>
+          Add a "keepalive" load — a resistor or LED across V<sub>BUS</sub> that pulls 50 – 100 mA continuously.
+          Wastes power but works with any bank
+        </li>
+        <li>
+          Have the MCU wake every 10 seconds and pull a quick burst of current to re-trigger the bank. Brittle
+          but software-only
+        </li>
+        <li>
+          Skip the bank — wire a bare 18650 + TP4056 + 5 V boost converter directly. More work, but no
+          auto-shutoff
+        </li>
+      </ol>
+      <h2>Voltage regulation between source and load</h2>
+      <p>
+        Your battery and your circuit rarely run at the same voltage. The regulator you put between them matters:
+      </p>
+      <Compare
+        header={["", "When", "Efficiency", "Heat"]}
+        rows={[
+          [
+            "LDO (linear regulator)",
+            <>Source &gt; Load by a small drop (e.g., 5 V → 3.3 V, 4.2 V LiPo → 3.3 V)</>,
+            <>η = V<sub>out</sub> / V<sub>in</sub>. ~80 % at 5 → 3.3, awful at 12 → 3.3</>,
+            <>(V<sub>in</sub> − V<sub>out</sub>) · I as heat. Easy to overheat for big drops</>,
+          ],
+          [
+            "Buck (step-down)",
+            <>Source &gt; Load by any amount. The default for &gt; 1 V drops</>,
+            <>~90 – 95 % at any ratio</>,
+            <>Minimal. Switching noise visible on output ripple</>,
+          ],
+          [
+            "Boost (step-up)",
+            <>Source &lt; Load. Two AAs (3 V) driving 5 V USB output. Single 3.3 V cell to 5 V</>,
+            <>~85 – 92 %</>,
+            <>Minimal, switching noise. Inductor sized for current</>,
+          ],
+          [
+            "Buck-boost",
+            <>Source spans both above and below load (single LiPo 4.2 → 3.0 V powering a 3.3 V rail)</>,
+            <>~85 – 90 %</>,
+            <>Minimal, more complex topology</>,
+          ],
+          [
+            "Direct (no regulator)",
+            <>When V<sub>source</sub> = V<sub>load</sub> within spec. 1S LiPo (3.3 – 4.2 V) directly powering a
+            3.3 V chip that tolerates the range</>,
+            <>100 %</>,
+            <>None</>,
+          ],
+        ]}
+      />
+      <h2>Decision table</h2>
+      <SpecTable
+        rows={[
+          [
+            <>Static desk project, always plugged in</>,
+            <>USB-C PD adapter + a CH224K sink IC, or a USB 5 V wall wart. No batteries at all</>,
+          ],
+          [
+            <>Always-on, can't tolerate power outages (clock, alarm panel)</>,
+            <>Wall wart + a small backup LiFePO4 pack with a charge/discharge IC. The "ATX UPS" pattern</>,
+          ],
+          [
+            <>Outdoor or remote, low-current sensor (~1 mA average), runs for years</>,
+            <>3×AA alkaline or lithium primaries. Single-use, deploy and forget</>,
+          ],
+          [
+            <>Outdoor, moderate current (5 – 50 mA average), monthly maintenance OK</>,
+            <>3 – 4× AA NiMH (Eneloop), charged from a solar panel or removed for charging</>,
+          ],
+          [
+            <>Wearable, handheld, weight matters, charged daily</>,
+            <>1S LiPo pouch + TP4056 + boost/buck depending on rail. Use case where LiPo is genuinely best</>,
+          ],
+          [
+            <>Robotics, drones, &gt; 5 A peak, weight matters</>,
+            <>Multi-cell LiPo (3S/4S) with a real BMS. Manage it with respect — store at storage voltage (~3.8 V/cell)</>,
+          ],
+          [
+            <>Larger fixed installation (workshop bot, home automation hub)</>,
+            <>4S LiFePO4 + Mean Well wall PSU. Sleeps on AC, runs from battery during outages</>,
+          ],
+          [
+            <>Camera, motor, &gt; 200 mA continuous</>,
+            <>USB power bank — auto-shutoff isn't a problem at these loads. Or LiPo + boost if portability matters</>,
+          ],
+        ]}
+      />
+      <h2>Designing for safe unattended operation</h2>
+      <p>
+        The fact that you're worried about leaving a project unattended is a sign of engineering maturity, not
+        paranoia. Here's the cumulative checklist:
+      </p>
+      <ul>
+        <li>
+          <strong>One layer of protection isn't enough.</strong> A BMS that can fail open is a single point of
+          failure. Add a fuse — resettable PTC (Polyfuse) or one-shot — sized at 1.5 × the maximum expected
+          continuous current
+        </li>
+        <li>
+          <strong>Thermal cutoff.</strong> A bimetal thermal switch (NC, normally closed) opens at 60 – 70 °C
+          and breaks the circuit if anything heats up. ~$1 each, mount against the battery or hottest IC.
+          Independent of the BMS
+        </li>
+        <li>
+          <strong>Fire-resistant container.</strong> A metal cookie tin, a ceramic flowerpot, or a purpose-made
+          "LiPo safe bag" (sold for RC use) contains a lithium event. For deployed projects, treat the
+          enclosure as the last line of containment
+        </li>
+        <li>
+          <strong>Smoke alarm in the room.</strong> Not a project component, but: if you're running anything
+          lithium-powered while not at home, the room it's in should have a working smoke alarm. This is the
+          cheapest insurance you can buy
+        </li>
+        <li>
+          <strong>Don't store fully-charged lithium long-term.</strong> Long-term storage at 100 % SOC stresses
+          the chemistry and shortens calendar life. LiPo "storage voltage" is ~3.8 V/cell (~50 % SOC) — set
+          your charger to storage mode if leaving for &gt; 2 weeks
+        </li>
+        <li>
+          <strong>Inspect packs visibly.</strong> A swollen LiPo is a pre-failure indicator. If a pouch has
+          puffed up — even slightly — discharge to storage voltage, put it in a fireproof container, and dispose
+          properly. Don't try to revive it
+        </li>
+        <li>
+          <strong>Decoupling and bulk caps reduce supply transients.</strong> A motor or radio drawing pulse
+          currents stresses the supply; local bulk caps (100 µF + 100 nF) at the load + decoupling caps at
+          every IC (see <a href="#/pr-decoupling">pr-decoupling</a>) smooth the demand and reduce BMS trip
+          events
+        </li>
+        <li>
+          <strong>Don't share grounds across high-current and signal domains.</strong> Motor switching currents
+          flowing through your analog ground reference corrupt your ADC and can confuse your shutdown logic.
+          Star-ground or a single point of connection between domains
+        </li>
+      </ul>
+      <p>
+        For a project that's literally going to be left running in your house while you're away, the
+        recommendation is straightforward: <strong>wall plug if possible</strong>, otherwise{" "}
+        <strong>NiMH or LiFePO4 with a fused and thermally-protected enclosure</strong>. Plain LiPo can be
+        managed safely but the engineering effort to do so well exceeds what most personal projects can justify.
+      </p>
+    </>
+  ),
   "pr-i2c": () => (
     <>
       <h2>The idea</h2>
